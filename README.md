@@ -7,4 +7,5 @@ Két játékos vesz részt: az egyik a képernyőn látja a "bombát" és annak 
 Technológiák
 
 Frontend: HTML, CSS, JavaScript
+
 Backend: C# / ASP.NET Core (valós idejű kommunikáció)
