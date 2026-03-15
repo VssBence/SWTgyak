@@ -1,0 +1,126 @@
+<!DOCTYPE html>
+<html lang="hu">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>COOP Quiz - Kooperatív Kvízjáték</title>
+  <link rel="stylesheet" href="/css/style.css">
+</head>
+<body>
+  <div id="app">
+
+    <!-- LOBBY SCREEN -->
+    <div id="screen-lobby" class="screen active">
+      <div class="lobby-container">
+        <h1 class="logo">🎮 COOP<span>Quiz</span></h1>
+        <p class="subtitle">Kooperatív kvízjáték két játékosnak</p>
+
+        <div class="lobby-actions">
+          <div class="input-group">
+            <label for="player-name">Játékos neved</label>
+            <input type="text" id="player-name" placeholder="Add meg a neved..." maxlength="20">
+          </div>
+
+          <button id="btn-create" class="btn btn-primary">Szoba létrehozása</button>
+
+          <div class="divider"><span>vagy</span></div>
+
+          <div class="input-group">
+            <label for="room-code">Szobakód</label>
+            <input type="text" id="room-code" placeholder="6 betűs kód..." maxlength="6" style="text-transform: uppercase">
+          </div>
+          <button id="btn-join" class="btn btn-secondary">Csatlakozás</button>
+        </div>
+
+        <div id="lobby-error" class="error-msg hidden"></div>
+      </div>
+    </div>
+
+    <!-- WAITING ROOM -->
+    <div id="screen-waiting" class="screen">
+      <div class="waiting-container">
+        <h2>Várakozás...</h2>
+        <div class="room-code-display">
+          <span>Szobakód:</span>
+          <strong id="display-room-code">------</strong>
+          <button id="btn-copy-code" class="btn-icon" title="Másolás">📋</button>
+        </div>
+
+        <div id="players-list" class="players-list">
+          <!-- Dinamikus -->
+        </div>
+
+        <p id="waiting-msg" class="waiting-msg">Várakozás a másik játékosra...</p>
+        <button id="btn-start" class="btn btn-primary hidden">Játék indítása!</button>
+      </div>
+    </div>
+
+    <!-- GAME SCREEN -->
+    <div id="screen-game" class="screen">
+      <div class="game-container">
+        <div class="game-header">
+          <div class="question-counter">
+            <span id="q-current">1</span>/<span id="q-total">10</span>
+          </div>
+          <div class="timer-bar">
+            <div id="timer-fill" class="timer-fill"></div>
+          </div>
+          <div class="score-display">
+            <span>Csapat: <strong id="team-score">0</strong></span>
+          </div>
+        </div>
+
+        <div class="question-area">
+          <div id="question-category" class="category-badge">Kategória</div>
+          <div id="question-difficulty" class="difficulty-badge">Közepes</div>
+          <h2 id="question-text">Kérdés szövege ide kerül?</h2>
+        </div>
+
+        <div id="options-grid" class="options-grid">
+          <!-- 4 válasz gomb -->
+        </div>
+
+        <div id="round-result" class="round-result hidden">
+          <div id="result-details"></div>
+          <button id="btn-next" class="btn btn-primary hidden">Következő kérdés</button>
+        </div>
+
+        <div id="partner-status" class="partner-status hidden">
+          <span>🤝 Társad már válaszolt!</span>
+        </div>
+      </div>
+    </div>
+
+    <!-- RESULTS SCREEN -->
+    <div id="screen-results" class="screen">
+      <div class="results-container">
+        <div id="result-emoji" class="result-emoji">🏆</div>
+        <h2 id="result-grade">Legendás csapat!</h2>
+
+        <div class="final-scores">
+          <div class="combined-score">
+            <span>Csapat összpontszám</span>
+            <strong id="final-combined">0</strong>
+          </div>
+          <div id="player-scores" class="player-scores">
+            <!-- Dinamikus -->
+          </div>
+        </div>
+
+        <div class="score-bar-container">
+          <div class="score-bar-bg">
+            <div id="score-bar-fill" class="score-bar-fill"></div>
+          </div>
+          <span id="score-percentage">0%</span>
+        </div>
+
+        <button id="btn-back-lobby" class="btn btn-primary">Vissza a lobbiba</button>
+      </div>
+    </div>
+
+  </div>
+
+  <script src="/socket.io/socket.io.js"></script>
+  <script src="/js/game.js"></script>
+</body>
+</html>
