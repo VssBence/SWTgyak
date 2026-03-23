@@ -2,10 +2,11 @@ import cv2
 import random
 import os
 from ultralytics import YOLO
+import time
 
-def create_random_clip_opencv(input_path, clip_length_sec):
+def main(input_path, clip_length_sec):
     try:
-        model = YOLO("yolov8n.pt")
+        model = YOLO("yolov8s.pt")
         # Videó megnyitása
         cap = cv2.VideoCapture(input_path)
         if not cap.isOpened():
@@ -27,7 +28,8 @@ def create_random_clip_opencv(input_path, clip_length_sec):
             return
 
         # Véletlenszerű kezdő képkocka sorsolása
-        max_start_frame = total_frames - frames_to_extract
+        extra_frames_buffer = int(2 * fps)
+        max_start_frame = total_frames - frames_to_extract - extra_frames_buffer
         start_frame = random.randint(0, max_start_frame)
 
         print(f"Videó adatai: {fps} FPS, Felbontás: {width}x{height}")
@@ -38,17 +40,18 @@ def create_random_clip_opencv(input_path, clip_length_sec):
 
         # Képkockák beolvasása és kiírása
         for i in range(frames_to_extract):
+            frame_start_time = time.time()
             ret, frame = cap.read()
             if not ret:
                 print("Figyelmeztetés: A vártnál hamarabb véget ért a videó.")
                 break
-            if i % 3 == 0:
+            if i % 6 == 0:
                 boxes_to_draw = []
-                results = model(frame, verbose=False)
+                results = model(frame, verbose=False,conf=0.3)
                 for box in results[0].boxes:
                     cls = int(box.cls[0])
                     label = model.names[cls]
-                    if label in ("car","truck","bus"):
+                    if label in ("car","truck","bus","motorcycle"):
                         x1, y1, x2, y2 = map(int, box.xyxy[0])
                         conf = float(box.conf[0])
                         boxes_to_draw.append((x1, y1, x2, y2, label, conf))
@@ -56,7 +59,11 @@ def create_random_clip_opencv(input_path, clip_length_sec):
             for (x1, y1, x2, y2, label, conf) in boxes_to_draw:
                 cv2.rectangle(frame,(x1,y1),(x2,y2), (0,255,0),2)
             cv2.imshow("Clip",frame)
-            if cv2.waitKey(1) & 0xFF == 27:
+            
+            elapsed_time = time.time() - frame_start_time
+            delay = max(1, int((1/fps - elapsed_time) * 1000))
+            
+            if cv2.waitKey(delay) & 0xFF == 27: #ESCAPE a kilépéshez
                 break;
         cv2.destroyAllWindows()
 
@@ -70,4 +77,4 @@ def create_random_clip_opencv(input_path, clip_length_sec):
 BEMENETI_VIDEO = os.path.join(os.path.dirname(os.path.abspath(__file__)), "..", "videos", "test4_11min.mp4")
 KIVAGAS_HOSSZA = 20 # másodperc
 
-create_random_clip_opencv(BEMENETI_VIDEO, KIVAGAS_HOSSZA)
+main(BEMENETI_VIDEO, KIVAGAS_HOSSZA)
