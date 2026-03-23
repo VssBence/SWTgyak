@@ -1,9 +1,11 @@
 import cv2
 import random
 import os
+from ultralytics import YOLO
 
 def create_random_clip_opencv(input_path, clip_length_sec):
     try:
+        model = YOLO("yolov8n.pt")
         # Videó megnyitása
         cap = cv2.VideoCapture(input_path)
         if not cap.isOpened():
@@ -33,7 +35,6 @@ def create_random_clip_opencv(input_path, clip_length_sec):
 
         # Ugrás a kisorsolt kezdő képkockára
         cap.set(cv2.CAP_PROP_POS_FRAMES, start_frame)
-        delay = int(1000/fps)
 
         # Képkockák beolvasása és kiírása
         for i in range(frames_to_extract):
@@ -41,8 +42,21 @@ def create_random_clip_opencv(input_path, clip_length_sec):
             if not ret:
                 print("Figyelmeztetés: A vártnál hamarabb véget ért a videó.")
                 break
+            if i % 3 == 0:
+                boxes_to_draw = []
+                results = model(frame, verbose=False)
+                for box in results[0].boxes:
+                    cls = int(box.cls[0])
+                    label = model.names[cls]
+                    if label in ("car","truck","bus"):
+                        x1, y1, x2, y2 = map(int, box.xyxy[0])
+                        conf = float(box.conf[0])
+                        boxes_to_draw.append((x1, y1, x2, y2, label, conf))
+                    
+            for (x1, y1, x2, y2, label, conf) in boxes_to_draw:
+                cv2.rectangle(frame,(x1,y1),(x2,y2), (0,255,0),2)
             cv2.imshow("Clip",frame)
-            if cv2.waitKey(delay) & 0xFF == 27:
+            if cv2.waitKey(1) & 0xFF == 27:
                 break;
         cv2.destroyAllWindows()
 

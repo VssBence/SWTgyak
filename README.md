@@ -5,3 +5,7 @@ Töltsd le a videó fájlokat: [Google Drive link](https://drive.google.com/driv
 Majd helyezd be a `videos/` mappába.
 
 Ezeket a fájlokat nem tartalmazza a repo, mivel túl nagyok.
+
+
+pip install opencv-python
+pip install ultralytics
