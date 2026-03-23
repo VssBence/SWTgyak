@@ -3,6 +3,7 @@ import random
 import os
 from ultralytics import YOLO
 import time
+import threading
 
 def main(input_path, clip_length_sec):
     try:
@@ -19,7 +20,7 @@ def main(input_path, clip_length_sec):
         width = int(cap.get(cv2.CAP_PROP_FRAME_WIDTH))
         height = int(cap.get(cv2.CAP_PROP_FRAME_HEIGHT))
 
-        # Kiszámoljuk, hány képkockát jelent a kért másodperc
+        # Átalakítjuk, hány képkockát jelent a kért másodperc
         frames_to_extract = int(clip_length_sec * fps)
 
         if total_frames <= frames_to_extract:
@@ -37,27 +38,43 @@ def main(input_path, clip_length_sec):
 
         # Ugrás a kisorsolt kezdő képkockára
         cap.set(cv2.CAP_PROP_POS_FRAMES, start_frame)
+        
+        boxes_to_draw = []
+        boxes_lock = threading.Lock()
+        
+        def detection(frame): #Az objektumon detektálása külön függvényben, párhuzamosítva
+            nonlocal boxes_to_draw
+            results = model(frame, verbose=False, conf=0.3)
+            new_boxes = []
+            for box in results[0].boxes:
+                cls = int(box.cls[0])
+                label = model.names[cls]
+                if label in ("car","truck","bus","motorcycle"):
+                    x1, y1, x2, y2 = map(int, box.xyxy[0])
+                    conf = float(box.conf[0])
+                    new_boxes.append((x1, y1, x2, y2, label, conf))
+            with boxes_lock:
+                boxes_to_draw = new_boxes
+        
+        detection_thread = None
 
         # Képkockák beolvasása és kiírása
         for i in range(frames_to_extract):
+            
             frame_start_time = time.time()
             ret, frame = cap.read()
             if not ret:
                 print("Figyelmeztetés: A vártnál hamarabb véget ért a videó.")
                 break
-            if i % 6 == 0:
-                boxes_to_draw = []
-                results = model(frame, verbose=False,conf=0.3)
-                for box in results[0].boxes:
-                    cls = int(box.cls[0])
-                    label = model.names[cls]
-                    if label in ("car","truck","bus","motorcycle"):
-                        x1, y1, x2, y2 = map(int, box.xyxy[0])
-                        conf = float(box.conf[0])
-                        boxes_to_draw.append((x1, y1, x2, y2, label, conf))
-                    
-            for (x1, y1, x2, y2, label, conf) in boxes_to_draw:
-                cv2.rectangle(frame,(x1,y1),(x2,y2), (0,255,0),2)
+            if i % 3 == 0:
+                if detection_thread is not None:
+                    detection_thread.join()
+                detection_thread = threading.Thread(target=detection, args=(frame.copy(),))
+                detection_thread.start()
+                
+            with boxes_lock:
+                for (x1, y1, x2, y2, label, conf) in boxes_to_draw:
+                    cv2.rectangle(frame,(x1,y1),(x2,y2), (0,255,0),2)
             cv2.imshow("Clip",frame)
             
             elapsed_time = time.time() - frame_start_time
@@ -65,6 +82,8 @@ def main(input_path, clip_length_sec):
             
             if cv2.waitKey(delay) & 0xFF == 27: #ESCAPE a kilépéshez
                 break;
+        if detection_thread is not None:
+            detection_thread.join()
         cv2.destroyAllWindows()
 
     except Exception as e:
