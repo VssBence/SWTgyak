@@ -43,6 +43,8 @@ def main(input_path, clip_length_sec):
         boxes_lock = threading.Lock()
         
         def detection(frame): #Az objektumon detektálása külön függvényben, párhuzamosítva
+            roi_x1, roi_y1 = 380, 170
+            roi_x2, roi_y2 = 1130, 290
             nonlocal boxes_to_draw
             results = model(frame, verbose=False, conf=0.3)
             new_boxes = []
@@ -52,7 +54,8 @@ def main(input_path, clip_length_sec):
                 if label in ("car","truck","bus","motorcycle"):
                     x1, y1, x2, y2 = map(int, box.xyxy[0])
                     conf = float(box.conf[0])
-                    new_boxes.append((x1, y1, x2, y2, label, conf))
+                    if x1 < roi_x2 and x2 > roi_x1 and y1 < roi_y2 and y2 > roi_y1:
+                        new_boxes.append((x1, y1, x2, y2, label, conf))
             with boxes_lock:
                 boxes_to_draw = new_boxes
         
