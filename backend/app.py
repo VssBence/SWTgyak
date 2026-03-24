@@ -66,15 +66,19 @@ def main(input_path, clip_length_sec):
             if not ret:
                 print("Figyelmeztetés: A vártnál hamarabb véget ért a videó.")
                 break
-            if i % 3 == 0:
+            if i % 4 == 0:
                 if detection_thread is not None:
                     detection_thread.join()
                 detection_thread = threading.Thread(target=detection, args=(frame.copy(),))
                 detection_thread.start()
-                
+            
             with boxes_lock:
                 for (x1, y1, x2, y2, label, conf) in boxes_to_draw:
                     cv2.rectangle(frame,(x1,y1),(x2,y2), (0,255,0),2)
+            
+            #PIROS DOBOZ
+            cv2.rectangle(frame, (403, 191), (1111, 269), (0, 0, 255), 2)
+            
             cv2.imshow("Clip",frame)
             
             elapsed_time = time.time() - frame_start_time

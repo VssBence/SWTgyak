@@ -1,2 +1,3 @@
 videos/*
 !videos/.gitkeep
+cordinate_selector.py
