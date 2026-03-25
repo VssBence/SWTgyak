@@ -3,11 +3,12 @@ import random
 import os
 from ultralytics import YOLO
 import time
-import threading
 
 def main(input_path, clip_length_sec):
     try:
+        # Modell betöltése
         model = YOLO("yolov8s.pt")
+        
         # Videó megnyitása
         cap = cv2.VideoCapture(input_path)
         if not cap.isOpened():
@@ -39,27 +40,18 @@ def main(input_path, clip_length_sec):
         # Ugrás a kisorsolt kezdő képkockára
         cap.set(cv2.CAP_PROP_POS_FRAMES, start_frame)
         
-        boxes_to_draw = []
-        boxes_lock = threading.Lock()
+        # Számláláshoz szükséges beállítások
+        target_classes = [2, 3, 5, 7] # autó, motor, busz, teherautó
+        roi_x1, roi_y1 = 380, 170
+        roi_x2, roi_y2 = 1130, 290
         
-        def detection(frame): #Az objektumon detektálása külön függvényben, párhuzamosítva
-            roi_x1, roi_y1 = 380, 170
-            roi_x2, roi_y2 = 1130, 290
-            nonlocal boxes_to_draw
-            results = model(frame, verbose=False, conf=0.3)
-            new_boxes = []
-            for box in results[0].boxes:
-                cls = int(box.cls[0])
-                label = model.names[cls]
-                if label in ("car","truck","bus","motorcycle"):
-                    x1, y1, x2, y2 = map(int, box.xyxy[0])
-                    conf = float(box.conf[0])
-                    if x1 < roi_x2 and x2 > roi_x1 and y1 < roi_y2 and y2 > roi_y1:
-                        new_boxes.append((x1, y1, x2, y2, label, conf))
-            with boxes_lock:
-                boxes_to_draw = new_boxes
         
-        detection_thread = None
+        # A piros doboz pontos koordinátái
+        piros_doboz_x1, piros_doboz_y1 = 403, 191
+        piros_doboz_x2, piros_doboz_y2 = 1111, 269
+        
+        vehicle_count = 0
+        vehicle_states = {} # Tárolja a járművek állapotát: 'inside' vagy 'counted'
 
         # Képkockák beolvasása és kiírása
         for i in range(frames_to_extract):
@@ -69,28 +61,65 @@ def main(input_path, clip_length_sec):
             if not ret:
                 print("Figyelmeztetés: A vártnál hamarabb véget ért a videó.")
                 break
-            if i % 4 == 0:
-                if detection_thread is not None:
-                    detection_thread.join()
-                detection_thread = threading.Thread(target=detection, args=(frame.copy(),))
-                detection_thread.start()
             
-            with boxes_lock:
-                for (x1, y1, x2, y2, label, conf) in boxes_to_draw:
-                    cv2.rectangle(frame,(x1,y1),(x2,y2), (0,255,0),2)
+            # Objektumkövetés (track) a képkockán
+            results = model.track(frame, persist=True, classes=target_classes, verbose=False, conf=0.3)
             
-            #PIROS DOBOZ
-            cv2.rectangle(frame, (403, 191), (1111, 269), (0, 0, 255), 2)
+            # PIROS DOBOZ és belső számláló vonal rajzolása
+            cv2.rectangle(frame, (piros_doboz_x1, piros_doboz_y1), (piros_doboz_x2, piros_doboz_y2), (0, 0, 255), 2)
+
+            # Eredmények feldolgozása, ha talált járművet azonosítóval
+            if results[0].boxes.id is not None:
+                boxes = results[0].boxes.xyxy.cpu().numpy()
+                ids = results[0].boxes.id.cpu().numpy().astype(int)
+
+                for box, id in zip(boxes, ids):
+                    x1, y1, x2, y2 = map(int, box)
+                    
+                    # Középpont (centroid) kiszámítása
+                    cx = (x1 + x2) // 2
+                    cy = (y1 + y2) // 2
+
+                    # Ellenőrizzük, hogy a jármű közepe a megfigyelt területen (ROI) belül van-e
+                    if roi_x1 < cx < roi_x2 and y2 > roi_y1 and y1 < roi_y2:
+                        
+                        # Zöld doboz, középpont és ID rajzolása
+                        cv2.rectangle(frame, (x1, y1), (x2, y2), (0, 255, 0), 2)
+                        cv2.circle(frame, (cx, cy), 4, (0, 255, 0), -1)
+                        cv2.putText(frame, f"ID: {id}", (x1, y1 - 10), cv2.FONT_HERSHEY_SIMPLEX, 0.5, (0, 255, 0), 2)
+
+                        # Számláló logika: Belépés és kilépés figyelése
+                        # Megnézzük, hogy a jármű középpontja a dobozban van-e
+                        in_red_box = (piros_doboz_x1 <= cx <= piros_doboz_x2) and (piros_doboz_y1 <= cy <= piros_doboz_y2)
+
+                        if in_red_box:
+                            # Ha a jármű a dobozban van, és még nem lett megszámolva, megjelöljük, hogy "bent van"
+                            if vehicle_states.get(id) != 'counted':
+                                vehicle_states[id] = 'inside'
+                        else:
+                            # Ha a jármű nincs a dobozban, de korábban bent volt -> most lépett ki!
+                            if vehicle_states.get(id) == 'inside':
+                                vehicle_count += 1
+                                vehicle_states[id] = 'counted' # Átállítjuk az állapotát, hogy ne számoljuk újra
+                                
+                                # Vizuális visszajelzés: villanjon fel fehérrel a doboz, amikor kilép és számolunk
+                                cv2.rectangle(frame, (piros_doboz_x1, piros_doboz_y1), 
+                                              (piros_doboz_x2, piros_doboz_y2), (255, 255, 255), 4)
+
+            # A végső számláló kiírása
+            cv2.putText(frame, f"Athaladt jarmuvek: {vehicle_count}", (20, 50), 
+                        cv2.FONT_HERSHEY_SIMPLEX, 1, (0, 255, 255), 3)
+
+            # Képernyőre rajzolás
+            cv2.imshow("Clip", frame)
             
-            cv2.imshow("Clip",frame)
-            
+            # Képkocka sebesség (FPS) tartása
             elapsed_time = time.time() - frame_start_time
             delay = max(1, int((1/fps - elapsed_time) * 1000))
             
-            if cv2.waitKey(delay) & 0xFF == 27: #ESCAPE a kilépéshez
-                break;
-        if detection_thread is not None:
-            detection_thread.join()
+            if cv2.waitKey(delay) & 0xFF == 27: # ESCAPE a kilépéshez
+                break
+
         cv2.destroyAllWindows()
 
     except Exception as e:
