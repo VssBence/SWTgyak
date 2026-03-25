@@ -1,3 +1,7 @@
 videos/*
 !videos/.gitkeep
 cordinate_selector.py
+yolov8n_openvino_model
+output.mp4
+yolov8n.pt
+yolov8s.pt

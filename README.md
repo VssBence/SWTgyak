@@ -8,4 +8,7 @@ Ezeket a fájlokat nem tartalmazza a repo, mivel túl nagyok.
 
 
 pip install opencv-python
+
 pip install ultralytics
+
+pip install openvino openvino-dev

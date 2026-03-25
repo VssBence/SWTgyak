@@ -1,14 +1,70 @@
 import cv2
 import random
 import os
+import numpy as np
 from ultralytics import YOLO
-import time
+
+
+def load_model():
+    """Modell betöltése a legjobb elérhető backend-del (OpenVINO > DirectML > CPU)."""
+    openvino_path = "yolov8n_openvino_model"
+    if os.path.isdir(openvino_path):
+        print("OpenVINO modell betöltése (Intel CPU/GPU)...")
+        return YOLO(openvino_path)
+
+    print("PyTorch modell betöltése...")
+    model = YOLO("yolov8n.pt")
+
+    # OpenVINO export próba (Intel CPU/Xe GPU-hoz a legjobb)
+    try:
+        model.export(format="openvino", imgsz=320, half=False)
+        print("OpenVINO export sikeres! Újratöltés...")
+        return YOLO(openvino_path)
+    except Exception as e:
+        print(f"OpenVINO nem elérhető ({e}), PyTorch-ot használunk.")
+
+    return model
+
+
+def suppress_duplicate_boxes(boxes, ids, iou_threshold=0.3):
+    """Közeli/átfedő dobozok összevonása, hogy egy járműhöz csak 1 doboz tartozzon (vektorizált)."""
+    if len(boxes) <= 1:
+        return boxes, ids
+
+    # Területek előre kiszámolva
+    areas = (boxes[:, 2] - boxes[:, 0]) * (boxes[:, 3] - boxes[:, 1])
+
+    keep = []
+    suppressed = np.zeros(len(boxes), dtype=bool)
+
+    for i in range(len(boxes)):
+        if suppressed[i]:
+            continue
+        keep.append(i)
+
+        # Vektorizált IoU a maradék dobozokkal
+        remaining = np.where(~suppressed)[0]
+        remaining = remaining[remaining > i]
+        if len(remaining) == 0:
+            continue
+
+        xi1 = np.maximum(boxes[i, 0], boxes[remaining, 0])
+        yi1 = np.maximum(boxes[i, 1], boxes[remaining, 1])
+        xi2 = np.minimum(boxes[i, 2], boxes[remaining, 2])
+        yi2 = np.minimum(boxes[i, 3], boxes[remaining, 3])
+        inter = np.maximum(0, xi2 - xi1) * np.maximum(0, yi2 - yi1)
+        union = areas[i] + areas[remaining] - inter
+        iou = np.where(union > 0, inter / union, 0)
+
+        suppressed[remaining[iou > iou_threshold]] = True
+
+    return boxes[keep], ids[keep]
+
 
 def main(input_path, clip_length_sec):
     try:
-        # Modell betöltése
-        model = YOLO("yolov8s.pt")
-        
+        model = load_model()
+
         # Videó megnyitása
         cap = cv2.VideoCapture(input_path)
         if not cap.isOpened():
@@ -39,93 +95,105 @@ def main(input_path, clip_length_sec):
 
         # Ugrás a kisorsolt kezdő képkockára
         cap.set(cv2.CAP_PROP_POS_FRAMES, start_frame)
-        
+
+        # Kimeneti videó beállítása
+        output_path = os.path.join(os.path.dirname(os.path.abspath(__file__)), "..", "out_videos", "output.mp4")
+        fourcc = cv2.VideoWriter_fourcc(*'mp4v')
+        out = cv2.VideoWriter(output_path, fourcc, fps, (width, height))
+
         # Számláláshoz szükséges beállítások
         target_classes = [2, 3, 5, 7] # autó, motor, busz, teherautó
         roi_x1, roi_y1 = 380, 170
         roi_x2, roi_y2 = 1130, 290
-        
-        
+
+
         # A piros doboz pontos koordinátái
         piros_doboz_x1, piros_doboz_y1 = 403, 191
         piros_doboz_x2, piros_doboz_y2 = 1111, 269
-        
+
         vehicle_count = 0
         vehicle_states = {} # Tárolja a járművek állapotát: 'inside' vagy 'counted'
 
+        # Csak minden N-edik képkockán futtatunk detekciót (a többi frame-re újrahasználjuk)
+        SKIP_FRAMES = 2
+        last_boxes = None
+        last_ids = None
+
         # Képkockák beolvasása és kiírása
         for i in range(frames_to_extract):
-            
-            frame_start_time = time.time()
+
             ret, frame = cap.read()
             if not ret:
                 print("Figyelmeztetés: A vártnál hamarabb véget ért a videó.")
                 break
-            
-            # Objektumkövetés (track) a képkockán
-            results = model.track(frame, persist=True, classes=target_classes, verbose=False, conf=0.3)
-            
-            # PIROS DOBOZ és belső számláló vonal rajzolása
+
+            # Csak minden SKIP_FRAMES-edik képkockán futtatunk detekciót
+            if i % SKIP_FRAMES == 0:
+                results = model.track(frame, persist=True, classes=target_classes, verbose=False,
+                                      conf=0.3, iou=0.5, imgsz=320, stream=True)
+
+                result = next(iter(results))
+                if result.boxes.id is not None:
+                    boxes = result.boxes.xyxy.cpu().numpy()
+                    ids = result.boxes.id.cpu().numpy().astype(int)
+
+                    # Előszűrés: csak a ROI közelében lévő dobozok (gyorsabb NMS)
+                    roi_mask = (boxes[:, 2] > roi_x1) & (boxes[:, 0] < roi_x2) & \
+                               (boxes[:, 3] > roi_y1) & (boxes[:, 1] < roi_y2)
+                    boxes, ids = boxes[roi_mask], ids[roi_mask]
+
+                    # Dupla dobozok szűrése
+                    last_boxes, last_ids = suppress_duplicate_boxes(boxes, ids)
+                else:
+                    last_boxes = None
+                    last_ids = None
+
+            # PIROS DOBOZ rajzolása
             cv2.rectangle(frame, (piros_doboz_x1, piros_doboz_y1), (piros_doboz_x2, piros_doboz_y2), (0, 0, 255), 2)
 
-            # Eredmények feldolgozása, ha talált járművet azonosítóval
-            if results[0].boxes.id is not None:
-                boxes = results[0].boxes.xyxy.cpu().numpy()
-                ids = results[0].boxes.id.cpu().numpy().astype(int)
-
-                for box, id in zip(boxes, ids):
+            # Eredmények feldolgozása (utolsó detekció eredményeit használjuk)
+            if last_boxes is not None and last_ids is not None:
+                for box, track_id in zip(last_boxes, last_ids):
                     x1, y1, x2, y2 = map(int, box)
-                    
+
                     # Középpont (centroid) kiszámítása
                     cx = (x1 + x2) // 2
                     cy = (y1 + y2) // 2
 
                     # Ellenőrizzük, hogy a jármű közepe a megfigyelt területen (ROI) belül van-e
                     if roi_x1 < cx < roi_x2 and y2 > roi_y1 and y1 < roi_y2:
-                        
+
                         # Zöld doboz, középpont és ID rajzolása
                         cv2.rectangle(frame, (x1, y1), (x2, y2), (0, 255, 0), 2)
                         cv2.circle(frame, (cx, cy), 4, (0, 255, 0), -1)
-                        cv2.putText(frame, f"ID: {id}", (x1, y1 - 10), cv2.FONT_HERSHEY_SIMPLEX, 0.5, (0, 255, 0), 2)
+                        cv2.putText(frame, f"ID: {track_id}", (x1, y1 - 10), cv2.FONT_HERSHEY_SIMPLEX, 0.5, (0, 255, 0), 2)
 
                         # Számláló logika: Belépés és kilépés figyelése
-                        # Megnézzük, hogy a jármű középpontja a dobozban van-e
                         in_red_box = (piros_doboz_x1 <= cx <= piros_doboz_x2) and (piros_doboz_y1 <= cy <= piros_doboz_y2)
 
                         if in_red_box:
-                            # Ha a jármű a dobozban van, és még nem lett megszámolva, megjelöljük, hogy "bent van"
-                            if vehicle_states.get(id) != 'counted':
-                                vehicle_states[id] = 'inside'
+                            if vehicle_states.get(track_id) != 'counted':
+                                vehicle_states[track_id] = 'inside'
                         else:
-                            # Ha a jármű nincs a dobozban, de korábban bent volt -> most lépett ki!
-                            if vehicle_states.get(id) == 'inside':
+                            if vehicle_states.get(track_id) == 'inside':
                                 vehicle_count += 1
-                                vehicle_states[id] = 'counted' # Átállítjuk az állapotát, hogy ne számoljuk újra
-                                
-                                # Vizuális visszajelzés: villanjon fel fehérrel a doboz, amikor kilép és számolunk
-                                cv2.rectangle(frame, (piros_doboz_x1, piros_doboz_y1), 
+                                vehicle_states[track_id] = 'counted'
+
+                                cv2.rectangle(frame, (piros_doboz_x1, piros_doboz_y1),
                                               (piros_doboz_x2, piros_doboz_y2), (255, 255, 255), 4)
 
             # A végső számláló kiírása
-            cv2.putText(frame, f"Athaladt jarmuvek: {vehicle_count}", (20, 50), 
+            cv2.putText(frame, f"Athaladt jarmuvek: {vehicle_count}", (20, 50),
                         cv2.FONT_HERSHEY_SIMPLEX, 1, (0, 255, 255), 3)
 
-            # Képernyőre rajzolás
-            cv2.imshow("Clip", frame)
-            
-            # Képkocka sebesség (FPS) tartása
-            elapsed_time = time.time() - frame_start_time
-            delay = max(1, int((1/fps - elapsed_time) * 1000))
-            
-            if cv2.waitKey(delay) & 0xFF == 27: # ESCAPE a kilépéshez
-                break
-
-        cv2.destroyAllWindows()
+            # Képkocka mentése a kimeneti videóba
+            out.write(frame)
 
     except Exception as e:
         print(f"Hiba történt: {e}")
     finally:
         # Erőforrások felszabadítása
+        if 'out' in locals(): out.release()
         if 'cap' in locals(): cap.release()
 
 # Paraméterek
