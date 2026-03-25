@@ -3,6 +3,13 @@ import random
 import os
 import numpy as np
 from ultralytics import YOLO
+from flask import Flask, send_file, jsonify
+from flask_cors import CORS
+import time
+
+# ── Flask alkalmazás ──
+app = Flask(__name__)
+CORS(app)
 
 
 def load_model():
@@ -62,6 +69,8 @@ def suppress_duplicate_boxes(boxes, ids, iou_threshold=0.3):
 
 
 def main(input_path, clip_length_sec):
+    """Videó feldolgozása: véletlenszerű kivágás + jármű számlálás. Visszaadja a kimeneti fájl útvonalát."""
+    output_path = os.path.join(os.path.dirname(os.path.abspath(__file__)), "..", "out_videos", f"output{int(time.time())}.mp4")
     try:
         model = load_model()
 
@@ -97,7 +106,6 @@ def main(input_path, clip_length_sec):
         cap.set(cv2.CAP_PROP_POS_FRAMES, start_frame)
 
         # Kimeneti videó beállítása
-        output_path = os.path.join(os.path.dirname(os.path.abspath(__file__)), "..", "out_videos", "output.mp4")
         fourcc = cv2.VideoWriter_fourcc(*'mp4v')
         out = cv2.VideoWriter(output_path, fourcc, fps, (width, height))
 
@@ -191,13 +199,32 @@ def main(input_path, clip_length_sec):
 
     except Exception as e:
         print(f"Hiba történt: {e}")
+        return None
     finally:
         # Erőforrások felszabadítása
         if 'out' in locals(): out.release()
         if 'cap' in locals(): cap.release()
 
-# Paraméterek
-BEMENETI_VIDEO = os.path.join(os.path.dirname(os.path.abspath(__file__)), "..", "videos", "test4_11min.mp4")
-KIVAGAS_HOSSZA = 20 # másodperc
+    return output_path
 
-main(BEMENETI_VIDEO, KIVAGAS_HOSSZA)
+
+# ── Paraméterek ──
+BEMENETI_VIDEO = os.path.join(os.path.dirname(os.path.abspath(__file__)), "..", "videos", "test4_11min.mp4")
+KIVAGAS_HOSSZA = 20  # másodperc
+
+
+# ── Flask végpont ──
+@app.route('/generate', methods=['POST'])
+def generate():
+    """Videó generálása és visszaküldése a kliensnek."""
+    result_path = main(BEMENETI_VIDEO, KIVAGAS_HOSSZA)
+
+    if result_path is None:
+        return jsonify({"error": "Hiba a videó feldolgozása közben"}), 500
+
+    return send_file(result_path, mimetype='video/mp4')
+
+
+# ── Szerver indítása ──
+if __name__ == '__main__':
+    app.run(port=5000, debug=True)

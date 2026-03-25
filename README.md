@@ -12,3 +12,8 @@ pip install opencv-python
 pip install ultralytics
 
 pip install openvino openvino-dev
+
+pip install flask flask-cors
+
+#Szerver elindítása:
+python backend/app.py
