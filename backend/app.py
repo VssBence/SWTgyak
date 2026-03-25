@@ -1,11 +1,13 @@
 import cv2
 import random
 import os
+import subprocess
 import numpy as np
 from ultralytics import YOLO
 from flask import Flask, send_file, jsonify
 from flask_cors import CORS
 import time
+import imageio_ffmpeg
 
 # ── Flask alkalmazás ──
 app = Flask(__name__)
@@ -106,8 +108,9 @@ def main(input_path, clip_length_sec):
         cap.set(cv2.CAP_PROP_POS_FRAMES, start_frame)
 
         # Kimeneti videó beállítása
+        temp_path = output_path.replace('.mp4', '_temp.mp4')
         fourcc = cv2.VideoWriter_fourcc(*'mp4v')
-        out = cv2.VideoWriter(output_path, fourcc, fps, (width, height))
+        out = cv2.VideoWriter(temp_path, fourcc, fps, (width, height))
 
         # Számláláshoz szükséges beállítások
         target_classes = [2, 3, 5, 7] # autó, motor, busz, teherautó
@@ -204,6 +207,16 @@ def main(input_path, clip_length_sec):
         # Erőforrások felszabadítása
         if 'out' in locals(): out.release()
         if 'cap' in locals(): cap.release()
+
+    # Re-encode to H.264 for browser compatibility
+    ffmpeg_exe = imageio_ffmpeg.get_ffmpeg_exe()
+    subprocess.run([
+        ffmpeg_exe, '-y', '-i', temp_path,
+        '-c:v', 'libx264', '-preset', 'fast', '-crf', '23',
+        '-pix_fmt', 'yuv420p', '-movflags', '+faststart',
+        output_path
+    ], check=True, capture_output=True)
+    os.remove(temp_path)
 
     return output_path
 

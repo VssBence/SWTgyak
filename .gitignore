@@ -3,5 +3,7 @@ videos/*
 cordinate_selector.py
 yolov8n_openvino_model
 output.mp4
+out_videos/*
+!out_videos/.gitkeep
 yolov8n.pt
 yolov8s.pt
