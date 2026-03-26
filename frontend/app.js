@@ -9,6 +9,8 @@ button.addEventListener("click", async () => {
             }
             return res;
     });
+    const vehicleCount = res.headers.get("X-Vehicle-Count");
+    console.log("Vehicle count: " + vehicleCount);
     const blob = await res.blob();
     const url = URL.createObjectURL(new Blob([blob], { type: 'video/mp4' }));
     const video = document.createElement("video");

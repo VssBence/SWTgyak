@@ -13,6 +13,8 @@ import imageio_ffmpeg
 app = Flask(__name__)
 CORS(app)
 
+is_generating = False
+
 
 def load_model():
     """Modell betöltése a legjobb elérhető backend-del (OpenVINO > DirectML > CPU)."""
@@ -205,7 +207,7 @@ def main(input_path, clip_length_sec):
         # Erőforrások felszabadítása
         if 'out' in locals(): out.release()
         if 'cap' in locals(): cap.release()
-
+    print(f"Kocsik száma: {vehicle_count}")
     # Re-encode to H.264 for browser compatibility
     ffmpeg_exe = imageio_ffmpeg.get_ffmpeg_exe()
     subprocess.run([
@@ -215,8 +217,9 @@ def main(input_path, clip_length_sec):
         output_path
     ], check=True, capture_output=True)
     os.remove(temp_path)
+    
 
-    return output_path
+    return output_path, vehicle_count
 
 
 # ── Paraméterek ──
@@ -228,12 +231,25 @@ KIVAGAS_HOSSZA = 20  # másodperc
 @app.route('/generate', methods=['POST'])
 def generate():
     """Videó generálása és visszaküldése a kliensnek."""
-    result_path = main(BEMENETI_VIDEO, KIVAGAS_HOSSZA)
+    global is_generating
 
-    if result_path is None:
-        return jsonify({"error": "Hiba a videó feldolgozása közben"}), 500
+    if is_generating:
+        return jsonify({"error": "A szerver jelenleg egy videót dolgoz fel. Próbáld újra később!"}), 503
 
-    return send_file(result_path, mimetype='video/mp4')
+    is_generating = True
+    try:
+        result = main(BEMENETI_VIDEO, KIVAGAS_HOSSZA)
+
+        if result is None:
+            return jsonify({"error": "Hiba a videó feldolgozása közben"}), 500
+
+        result_path, vehicle_count = result
+        response = send_file(result_path, mimetype='video/mp4')
+        response.headers['X-Vehicle-Count'] = str(vehicle_count)
+        response.headers['Access-Control-Expose-Headers'] = 'X-Vehicle-Count'
+        return response
+    finally:
+        is_generating = False
 
 
 # ── Szerver indítása ──
