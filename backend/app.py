@@ -76,8 +76,6 @@ def main(input_path, clip_length_sec):
     """Videó feldolgozása: véletlenszerű kivágás + jármű számlálás. Visszaadja a kimeneti fájl útvonalát."""
     output_path = os.path.join(os.path.dirname(os.path.abspath(__file__)), "..", "out_videos", f"output{int(time.time())}.mp4")
     try:
-        model = load_model()
-
         # Videó megnyitása
         cap = cv2.VideoCapture(input_path)
         if not cap.isOpened():
@@ -103,26 +101,44 @@ def main(input_path, clip_length_sec):
         max_start_frame = total_frames - frames_to_extract - extra_frames_buffer
         start_frame = random.randint(0, max_start_frame)
 
-        print(f"Videó adatai: {fps} FPS, Felbontás: {width}x{height}")
+        # Downscale to 720p
+        scale = 720 / height
+        out_w = int(width * scale)
+        out_h = 720
+
+        print(f"Videó adatai: {fps} FPS, Eredeti: {width}x{height}, Kimenet: {out_w}x{out_h}")
         print(f"Kivágás kezdete: {start_frame}. képkocka (kb. {start_frame/fps:.2f}. másodperc)")
 
         # Ugrás a kisorsolt kezdő képkockára
         cap.set(cv2.CAP_PROP_POS_FRAMES, start_frame)
 
-        # Kimeneti videó beállítása
-        temp_path = output_path.replace('.mp4', '_temp.mp4')
-        fourcc = cv2.VideoWriter_fourcc(*'mp4v')
-        out = cv2.VideoWriter(temp_path, fourcc, fps, (width, height))
+        # FFmpeg pipe: egyetlen menetben H.264 kódolás
+        ffmpeg_exe = imageio_ffmpeg.get_ffmpeg_exe()
+        ffmpeg_proc = subprocess.Popen([
+            ffmpeg_exe, '-y',
+            '-f', 'rawvideo', '-pix_fmt', 'bgr24',
+            '-s', f'{out_w}x{out_h}', '-r', str(fps),
+            '-i', 'pipe:0',
+            '-c:v', 'libx264', '-preset', 'fast', '-crf', '23',
+            '-pix_fmt', 'yuv420p', '-movflags', '+faststart',
+            output_path
+        ], stdin=subprocess.PIPE, stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL)
 
-        # Számláláshoz szükséges beállítások
+        # Számláláshoz szükséges beállítások (720p-re átszámolva)
         target_classes = [2, 3, 5, 7] # autó, motor, busz, teherautó
-        roi_x1, roi_y1 = 380, 170
-        roi_x2, roi_y2 = 1130, 290
+        roi_x1, roi_y1 = int(380 * scale), int(170 * scale)
+        roi_x2, roi_y2 = int(1130 * scale), int(290 * scale)
 
+        # A piros doboz pontos koordinátái (720p-re átszámolva)
+        piros_doboz_x1, piros_doboz_y1 = int(403 * scale), int(191 * scale)
+        piros_doboz_x2, piros_doboz_y2 = int(1111 * scale), int(269 * scale)
 
-        # A piros doboz pontos koordinátái
-        piros_doboz_x1, piros_doboz_y1 = 403, 191
-        piros_doboz_x2, piros_doboz_y2 = 1111, 269
+        # Padded crop region: csak ezt a területet kapja a YOLO (gyorsabb inferencia)
+        PAD_TOP, PAD_BOTTOM, PAD_LEFT, PAD_RIGHT = 80, 80, 40, 40
+        crop_y1 = max(0, roi_y1 - PAD_TOP)
+        crop_y2 = min(out_h, roi_y2 + PAD_BOTTOM)
+        crop_x1 = max(0, roi_x1 - PAD_LEFT)
+        crop_x2 = min(out_w, roi_x2 + PAD_RIGHT)
 
         vehicle_count = 0
         vehicle_states = {} # Tárolja a járművek állapotát: 'inside' vagy 'counted'
@@ -140,15 +156,26 @@ def main(input_path, clip_length_sec):
                 print("Figyelmeztetés: A vártnál hamarabb véget ért a videó.")
                 break
 
+            # Downscale to 720p
+            frame = cv2.resize(frame, (out_w, out_h))
+
             # Csak minden SKIP_FRAMES-edik képkockán futtatunk detekciót
             if i % SKIP_FRAMES == 0:
-                results = model.track(frame, persist=True, classes=target_classes, verbose=False,
+                # ROI crop: csak a releváns területet adjuk a YOLO-nak
+                cropped = frame[crop_y1:crop_y2, crop_x1:crop_x2]
+                results = MODEL.track(cropped, persist=True, classes=target_classes, verbose=False,
                                       conf=0.3, iou=0.5, imgsz=320, stream=True)
 
                 result = next(iter(results))
                 if result.boxes.id is not None:
                     boxes = result.boxes.xyxy.cpu().numpy()
                     ids = result.boxes.id.cpu().numpy().astype(int)
+
+                    # Crop-lokális koordináták visszaalakítása teljes frame-re
+                    boxes[:, 0] += crop_x1
+                    boxes[:, 1] += crop_y1
+                    boxes[:, 2] += crop_x1
+                    boxes[:, 3] += crop_y1
 
                     # Előszűrés: csak a ROI közelében lévő dobozok (gyorsabb NMS)
                     roi_mask = (boxes[:, 2] > roi_x1) & (boxes[:, 0] < roi_x2) & \
@@ -197,27 +224,19 @@ def main(input_path, clip_length_sec):
             cv2.putText(frame, f"Athaladt jarmuvek: {vehicle_count}", (20, 50),
                         cv2.FONT_HERSHEY_SIMPLEX, 1, (0, 255, 255), 3)
 
-            # Képkocka mentése a kimeneti videóba
-            out.write(frame)
+            # Képkocka mentése az FFmpeg pipe-ba
+            ffmpeg_proc.stdin.write(frame.tobytes())
 
     except Exception as e:
         print(f"Hiba történt: {e}")
         return None
     finally:
         # Erőforrások felszabadítása
-        if 'out' in locals(): out.release()
+        if 'ffmpeg_proc' in locals():
+            ffmpeg_proc.stdin.close()
+            ffmpeg_proc.wait()
         if 'cap' in locals(): cap.release()
     print(f"Kocsik száma: {vehicle_count}")
-    # Re-encode to H.264 for browser compatibility
-    ffmpeg_exe = imageio_ffmpeg.get_ffmpeg_exe()
-    subprocess.run([
-        ffmpeg_exe, '-y', '-i', temp_path,
-        '-c:v', 'libx264', '-preset', 'fast', '-crf', '23',
-        '-pix_fmt', 'yuv420p', '-movflags', '+faststart',
-        output_path
-    ], check=True, capture_output=True)
-    os.remove(temp_path)
-    
 
     return output_path, vehicle_count
 
@@ -225,6 +244,7 @@ def main(input_path, clip_length_sec):
 # ── Paraméterek ──
 BEMENETI_VIDEO = os.path.join(os.path.dirname(os.path.abspath(__file__)), "..", "videos", "test4_11min.mp4")
 KIVAGAS_HOSSZA = 20  # másodperc
+MODEL = load_model()
 
 
 # ── Flask végpont ──
