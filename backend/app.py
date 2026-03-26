@@ -176,8 +176,6 @@ def main(input_path, clip_length_sec):
 
                         # Zöld doboz, középpont és ID rajzolása
                         cv2.rectangle(frame, (x1, y1), (x2, y2), (0, 255, 0), 2)
-                        cv2.circle(frame, (cx, cy), 4, (0, 255, 0), -1)
-                        cv2.putText(frame, f"ID: {track_id}", (x1, y1 - 10), cv2.FONT_HERSHEY_SIMPLEX, 0.5, (0, 255, 0), 2)
 
                         # Számláló logika: Belépés és kilépés figyelése
                         in_red_box = (piros_doboz_x1 <= cx <= piros_doboz_x2) and (piros_doboz_y1 <= cy <= piros_doboz_y2)

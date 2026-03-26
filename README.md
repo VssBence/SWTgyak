@@ -15,5 +15,7 @@ pip install openvino openvino-dev
 
 pip install flask flask-cors
 
-#Szerver elindítása:
+pip install imageio-ffmpeg
+
+##Szerver elindítása:
 python backend/app.py

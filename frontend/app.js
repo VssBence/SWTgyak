@@ -1,5 +1,6 @@
 const button = document.querySelector("button");
 button.addEventListener("click", async () => {
+    button.disabled = true;
     console.log("Started");
     const res = await fetch("http://localhost:5000/generate", { method: "POST" }).then(
         (res) => {
