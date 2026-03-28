@@ -1,4 +1,5 @@
-#video-sec video{
-    width: 100%;
+#video_sec video{
+    width: 75%;
     height: auto;
+    pointer-events: none;
 }

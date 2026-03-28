@@ -53,7 +53,7 @@ def suppress_duplicate_boxes(boxes, ids, iou_threshold=0.3):
             continue
         keep.append(i)
 
-        # Vektorizált IoU a maradék dobozokkal
+        # Vektorizált Metszet osztva Unióval a maradék dobozokkal
         remaining = np.where(~suppressed)[0]
         remaining = remaining[remaining > i]
         if len(remaining) == 0:
@@ -196,14 +196,14 @@ def main(input_path, clip_length_sec):
                 for box, track_id in zip(last_boxes, last_ids):
                     x1, y1, x2, y2 = map(int, box)
 
-                    # Középpont (centroid) kiszámítása
+                    # Középpont kiszámítása
                     cx = (x1 + x2) // 2
                     cy = (y1 + y2) // 2
 
-                    # Ellenőrizzük, hogy a jármű közepe a megfigyelt területen (ROI) belül van-e
+                    # Ellenőrizzük, hogy a jármű közepe a megfigyelt területen belül van-e
                     if roi_x1 < cx < roi_x2 and y2 > roi_y1 and y1 < roi_y2:
 
-                        # Zöld doboz, középpont és ID rajzolása
+                        # Zöld doboz rajzolása
                         cv2.rectangle(frame, (x1, y1), (x2, y2), (0, 255, 0), 2)
 
                         # Számláló logika: Belépés és kilépés figyelése
@@ -220,7 +220,7 @@ def main(input_path, clip_length_sec):
                                 cv2.rectangle(frame, (piros_doboz_x1, piros_doboz_y1),
                                               (piros_doboz_x2, piros_doboz_y2), (255, 255, 255), 4)
 
-            # A végső számláló kiírása
+            # A végső eredmény kiírása
             cv2.putText(frame, f"Athaladt jarmuvek: {vehicle_count}", (20, 50),
                         cv2.FONT_HERSHEY_SIMPLEX, 1, (0, 255, 255), 3)
 
@@ -241,13 +241,13 @@ def main(input_path, clip_length_sec):
     return output_path, vehicle_count
 
 
-# ── Paraméterek ──
+#Paraméterek
 BEMENETI_VIDEO = os.path.join(os.path.dirname(os.path.abspath(__file__)), "..", "videos", "test4_11min.mp4")
 KIVAGAS_HOSSZA = 20  # másodperc
 MODEL = load_model()
 
 
-# ── Flask végpont ──
+#Flask végpont
 @app.route('/generate', methods=['POST'])
 def generate():
     """Videó generálása és visszaküldése a kliensnek."""
@@ -272,6 +272,6 @@ def generate():
         is_generating = False
 
 
-# ── Szerver indítása ──
+#Szerver indítása
 if __name__ == '__main__':
     app.run(port=5000, debug=True)
