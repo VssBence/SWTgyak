@@ -16,25 +16,75 @@ CORS(app)
 is_generating = False
 
 
-def load_model():
-    """Modell betöltése a legjobb elérhető backend-del (OpenVINO > DirectML > CPU)."""
+def detect_device():
+    """Legjobb elérhető inferencia eszköz detektálása (DirectML > OpenVINO > CPU)."""
+    try:
+        import torch_directml
+        device = torch_directml.device()
+        print("DirectML elérhető! AMD GPU gyorsítás aktív.")
+        return device, "directml"
+    except ImportError:
+        pass
+
+    try:
+        import openvino  # noqa: F401
+        print("OpenVINO elérhető! Intel CPU/GPU gyorsítás aktív.")
+        return "cpu", "openvino"
+    except ImportError:
+        pass
+
+    print("Gyorsítás nem elérhető, CPU módban futunk.")
+    return "cpu", "cpu"
+
+
+def detect_encoder():
+    """Legjobb elérhető H.264 hardveres encoder detektálása (AMF > QSV > libx264)."""
+    ffmpeg_exe = imageio_ffmpeg.get_ffmpeg_exe()
+    try:
+        result = subprocess.run(
+            [ffmpeg_exe, '-encoders'], capture_output=True, text=True
+        )
+        if 'h264_amf' in result.stdout:
+            print("AMD AMF encoder detektálva, hardveres kódolás aktív.")
+            return 'h264_amf'
+        if 'h264_qsv' in result.stdout:
+            print("Intel QuickSync encoder detektálva, hardveres kódolás aktív.")
+            return 'h264_qsv'
+    except Exception:
+        pass
+    print("Hardveres encoder nem elérhető, libx264 (szoftveres) kódolást használunk.")
+    return 'libx264'
+
+
+def build_ffmpeg_encoder_args(encoder):
+    """Encoder-specifikus FFmpeg argumentumok."""
+    if encoder == 'h264_amf':
+        return ['-c:v', 'h264_amf', '-quality', 'balanced', '-rc', 'cqp', '-qp_i', '23', '-qp_p', '23']
+    if encoder == 'h264_qsv':
+        return ['-c:v', 'h264_qsv', '-preset', 'medium', '-global_quality', '23']
+    return ['-c:v', 'libx264', '-preset', 'fast', '-crf', '23']
+
+
+def load_model(backend):
+    """Modell betöltése a detektált backend alapján (DirectML > OpenVINO > CPU)."""
     openvino_path = "yolov8n_openvino_model"
-    if os.path.isdir(openvino_path):
-        print("OpenVINO modell betöltése (Intel CPU/GPU)...")
-        return YOLO(openvino_path)
+
+    if backend == "openvino":
+        if os.path.isdir(openvino_path):
+            print("OpenVINO modell betöltése (Intel CPU/GPU)...")
+            return YOLO(openvino_path)
+        print("PyTorch modell betöltése + OpenVINO export...")
+        model = YOLO("yolov8n.pt")
+        try:
+            model.export(format="openvino", imgsz=320, half=False)
+            print("OpenVINO export sikeres! Újratöltés...")
+            return YOLO(openvino_path)
+        except Exception as e:
+            print(f"OpenVINO export sikertelen ({e}), CPU PyTorch-ot használunk.")
+        return model
 
     print("PyTorch modell betöltése...")
-    model = YOLO("yolov8n.pt")
-
-    # OpenVINO export próba (Intel CPU/Xe GPU-hoz a legjobb)
-    try:
-        model.export(format="openvino", imgsz=320, half=False)
-        print("OpenVINO export sikeres! Újratöltés...")
-        return YOLO(openvino_path)
-    except Exception as e:
-        print(f"OpenVINO nem elérhető ({e}), PyTorch-ot használunk.")
-
-    return model
+    return YOLO("yolov8n.pt")
 
 
 def suppress_duplicate_boxes(boxes, ids, iou_threshold=0.3):
@@ -119,7 +169,7 @@ def main(input_path, clip_length_sec):
             '-f', 'rawvideo', '-pix_fmt', 'bgr24',
             '-s', f'{out_w}x{out_h}', '-r', str(fps),
             '-i', 'pipe:0',
-            '-c:v', 'libx264', '-preset', 'fast', '-crf', '23',
+            *ENCODER_ARGS,
             '-pix_fmt', 'yuv420p', '-movflags', '+faststart',
             output_path
         ], stdin=subprocess.PIPE, stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL)
@@ -164,7 +214,7 @@ def main(input_path, clip_length_sec):
                 # ROI crop: csak a releváns területet adjuk a YOLO-nak
                 cropped = frame[crop_y1:crop_y2, crop_x1:crop_x2]
                 results = MODEL.track(cropped, persist=True, classes=target_classes, verbose=False,
-                                      conf=0.3, iou=0.5, imgsz=320, stream=True)
+                                      conf=0.3, iou=0.5, imgsz=320, stream=True, device=DEVICE)
 
                 result = next(iter(results))
                 if result.boxes.id is not None:
@@ -244,7 +294,10 @@ def main(input_path, clip_length_sec):
 #Paraméterek
 BEMENETI_VIDEO = os.path.join(os.path.dirname(os.path.abspath(__file__)), "..", "videos", "test4_11min.mp4")
 KIVAGAS_HOSSZA = 20  # másodperc
-MODEL = load_model()
+DEVICE, BACKEND = detect_device()
+ENCODER = detect_encoder()
+ENCODER_ARGS = build_ffmpeg_encoder_args(ENCODER)
+MODEL = load_model(BACKEND)
 
 
 #Flask végpont
