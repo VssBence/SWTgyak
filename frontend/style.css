@@ -45,3 +45,19 @@ button:disabled {
 h1 {
     color: #ec2458;
 }
+
+#countdown {
+    display: none;
+    font-size: 22px;
+    font-weight: bold;
+    color: #39e8ce;
+    border: 2px solid;
+    border-image: linear-gradient(to right, #ec2458, #39e8ce) 1;
+    padding: 4px 16px;
+    margin-top: 8px;
+    letter-spacing: 2px;
+}
+
+#countdown.visible {
+    display: block;
+}
