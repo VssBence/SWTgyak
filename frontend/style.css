@@ -1,5 +1,47 @@
+body {
+    margin: 0;
+    font-family: Arial, sans-serif;
+    background-image: url(bckground.jpg);
+    background-size: cover;
+    display: flex;
+    justify-content: center;
+    align-items: center;
+    height: 100vh;
+}
+
+.Start-Menu {
+    border: 5px solid;
+    border-image: linear-gradient(to right, #ec2458, #39e8ce) 1;
+    padding: 5%;
+    margin-bottom: 10%;
+    display: flex;
+    flex-direction: column;
+    align-items: center;
+}
+
 #video_sec video{
     width: 75%;
     height: auto;
     pointer-events: none;
+}
+
+button {
+    display: block;
+    padding: 10px 25px;
+    font-size: 27px;
+    cursor: pointer;
+    background: rgb(161, 161, 161);
+}
+
+
+button:hover {
+    background: linear-gradient(to right, #ec2458, #39e8ce);
+}
+
+button:disabled {
+    background: gray;
+}
+
+h1 {
+    color: #ec2458;
 }
