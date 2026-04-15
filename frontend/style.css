@@ -46,6 +46,10 @@ h1 {
     color: #ec2458;
 }
 
+h3 {
+    color: #ec2458;
+}
+
 #countdown {
     display: none;
     font-size: 22px;

@@ -4,16 +4,20 @@ import os
 import subprocess
 import numpy as np
 from ultralytics import YOLO
-from flask import Flask, send_file, jsonify
+from flask import Flask, send_file, jsonify, request
 from flask_cors import CORS
 import time
 import imageio_ffmpeg
+import uuid
+import threading
+import base64
 
 # ── Flask alkalmazás ──
 app = Flask(__name__)
 CORS(app)
 
 is_generating = False
+jobs = {}  # Itt tároljuk a folyamatban lévő és kész munkákat
 
 
 def load_model():
@@ -72,9 +76,11 @@ def suppress_duplicate_boxes(boxes, ids, iou_threshold=0.3):
     return boxes[keep], ids[keep]
 
 
-def main(input_path, clip_length_sec):
-    """Videó feldolgozása: véletlenszerű kivágás + jármű számlálás. Visszaadja a kimeneti fájl útvonalát."""
-    output_path = os.path.join(os.path.dirname(os.path.abspath(__file__)), "..", "out_videos", f"output{int(time.time())}.mp4")
+def process_video_task(job_id, start_frame, input_path, clip_length_sec):
+    """Ez a függvény fut a háttérben, és frissíti a job állapotát."""
+    global is_generating
+    output_path = os.path.join(os.path.dirname(os.path.abspath(__file__)), "..", "out_videos", f"output_{job_id}.mp4")
+    
     try:
         # Videó megnyitása
         cap = cv2.VideoCapture(input_path)
@@ -227,51 +233,143 @@ def main(input_path, clip_length_sec):
             # Képkocka mentése az FFmpeg pipe-ba
             ffmpeg_proc.stdin.write(frame.tobytes())
 
+        # Siker esetén frissítjük a Job állapotát
+        jobs[job_id]['status'] = 'done'
+        jobs[job_id]['output_path'] = output_path
+        jobs[job_id]['vehicle_count'] = vehicle_count
+
     except Exception as e:
         print(f"Hiba történt: {e}")
-        return None
+        jobs[job_id]['status'] = 'error'
     finally:
         # Erőforrások felszabadítása
         if 'ffmpeg_proc' in locals():
             ffmpeg_proc.stdin.close()
             ffmpeg_proc.wait()
         if 'cap' in locals(): cap.release()
-    print(f"Kocsik száma: {vehicle_count}")
 
-    return output_path, vehicle_count
+        print(f"Kocsik száma: {vehicle_count}")
+        is_generating = False
 
 
-#Paraméterek
+# Paraméterek
 BEMENETI_VIDEO = os.path.join(os.path.dirname(os.path.abspath(__file__)), "..", "videos", "test4_11min.mp4")
 KIVAGAS_HOSSZA = 20  # másodperc
 MODEL = load_model()
 
+# ── ÚJ VÉGPONTOK ──
 
-#Flask végpont
-@app.route('/generate', methods=['POST'])
-def generate():
-    """Videó generálása és visszaküldése a kliensnek."""
+@app.route('/start', methods=['POST'])
+def start_generation():
+    """Kezdeményezi a generálást, kiszámolja a kezdőpontot, visszaadja az első frame-et és az ID-t."""
     global is_generating
 
     if is_generating:
         return jsonify({"error": "A szerver jelenleg egy videót dolgoz fel. Próbáld újra később!"}), 503
 
     is_generating = True
+
     try:
-        result = main(BEMENETI_VIDEO, KIVAGAS_HOSSZA)
+        # Videó megnyitása csak azért, hogy sorsoljunk és kivegyük az első képet
+        cap = cv2.VideoCapture(BEMENETI_VIDEO)
+        if not cap.isOpened():
+            is_generating = False
+            return jsonify({"error": "Nem sikerült megnyitni a forrásvideót!"}), 500
 
-        if result is None:
-            return jsonify({"error": "Hiba a videó feldolgozása közben"}), 500
+        fps = cap.get(cv2.CAP_PROP_FPS)
+        total_frames = int(cap.get(cv2.CAP_PROP_FRAME_COUNT))
+        frames_to_extract = int(KIVAGAS_HOSSZA * fps)
 
-        result_path, vehicle_count = result
-        response = send_file(result_path, mimetype='video/mp4')
-        response.headers['X-Vehicle-Count'] = str(vehicle_count)
-        response.headers['Access-Control-Expose-Headers'] = 'X-Vehicle-Count'
-        return response
-    finally:
+        extra_frames_buffer = int(2 * fps)
+        max_start_frame = total_frames - frames_to_extract - extra_frames_buffer
+        
+        if max_start_frame <= 0:
+            cap.release()
+            return jsonify({"error": "A videó túl rövid a kért kivágáshoz!"}), 400
+
+        # Sorsolás
+        start_frame = random.randint(0, max_start_frame)
+        cap.set(cv2.CAP_PROP_POS_FRAMES, start_frame)
+        
+        # Első képkocka beolvasása
+        ret, frame = cap.read()
+        cap.release()
+
+        if not ret:
+            is_generating = False
+            return jsonify({"error": "Hiba az első képkocka olvasásakor!"}), 500
+
+        # Kép átméretezése 720p-re, hogy megegyezzen a végleges videóval
+        height = frame.shape[0]
+        width = frame.shape[1]
+        scale = 720 / height
+        frame = cv2.resize(frame, (int(width * scale), 720))
+
+        # Kódolás Base64 formátumba a könnyű küldéshez
+        _, buffer = cv2.imencode('.jpg', frame)
+        frame_b64 = base64.b64encode(buffer).decode('utf-8')
+
+        # Job létrehozása
+        job_id = str(uuid.uuid4())
+        jobs[job_id] = {
+            "status": "processing",
+            "start_time": time.time()
+        }
+
+        # Háttérszál indítása
+        thread = threading.Thread(target=process_video_task, args=(job_id, start_frame, BEMENETI_VIDEO, KIVAGAS_HOSSZA))
+        thread.daemon = True # A szál leáll, ha a főprogram leáll
+        thread.start()
+
+        return jsonify({
+            "message": "Feldolgozás elindítva",
+            "job_id": job_id,
+            "first_frame_base64": frame_b64
+        }), 200
+
+    except Exception as e:
         is_generating = False
+        return jsonify({"error": str(e)}), 500
 
 
-#Szerver indítása
+@app.route('/status/<job_id>', methods=['GET'])
+def get_status(job_id):
+    """A kliens lekérdezheti, hogy hol tart a folyamat."""
+    job = jobs.get(job_id)
+    if not job:
+        return jsonify({"error": "Nem található ilyen azonosító"}), 404
+
+    # Ha kész, visszaküldjük a kocsik számát is
+    response_data = {"status": job['status']}
+    if job['status'] == 'done':
+        response_data['vehicle_count'] = job.get('vehicle_count', 0)
+
+    return jsonify(response_data), 200
+
+
+@app.route('/video/<job_id>', methods=['GET'])
+def get_video(job_id):
+    """Kész videó letöltése."""
+    job = jobs.get(job_id)
+    if not job:
+        return jsonify({"error": "Nem található ilyen azonosító"}), 404
+
+    if job['status'] != 'done':
+        return jsonify({"error": "A videó még nincs kész vagy hiba történt."}), 400
+
+    video_path = job.get('output_path')
+    if not video_path or not os.path.exists(video_path):
+        return jsonify({"error": "A videófájl nem található a szerveren."}), 500
+
+    # Itt is benne hagyjuk a fejlécet, de a /status végpontból könnyebb lesz kiolvasni a kliensnek
+    response = send_file(video_path, mimetype='video/mp4')
+    response.headers['X-Vehicle-Count'] = str(job.get('vehicle_count', 0))
+    response.headers['Access-Control-Expose-Headers'] = 'X-Vehicle-Count'
+    return response
+
+
+# Szerver indítása
 if __name__ == '__main__':
+    # Hozzuk létre az output mappát, ha nincs
+    os.makedirs(os.path.join(os.path.dirname(os.path.abspath(__file__)), "..", "out_videos"), exist_ok=True)
     app.run(port=5000, debug=True)
