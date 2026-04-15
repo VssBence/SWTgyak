@@ -101,12 +101,7 @@ def process_video_task(job_id, start_frame, input_path, clip_length_sec):
             print("Hiba: A videó rövidebb, mint a kivágni kívánt részlet!")
             cap.release()
             return
-
-        # Véletlenszerű kezdő képkocka sorsolása
-        extra_frames_buffer = int(2 * fps)
-        max_start_frame = total_frames - frames_to_extract - extra_frames_buffer
-        start_frame = random.randint(0, max_start_frame)
-
+        
         # Downscale to 720p
         scale = 720 / height
         out_w = int(width * scale)
@@ -304,6 +299,13 @@ def start_generation():
         width = frame.shape[1]
         scale = 720 / height
         frame = cv2.resize(frame, (int(width * scale), 720))
+
+        # Piros doboz arányosított koordinátáinak kiszámítása (ugyanaz, mint a process_video_task-ban)
+        piros_doboz_x1, piros_doboz_y1 = int(403 * scale), int(191 * scale)
+        piros_doboz_x2, piros_doboz_y2 = int(1111 * scale), int(269 * scale)
+
+        # Piros téglalap rárajzolása a képre (BGR formátumban a piros (0, 0, 255), 2px vastagság)
+        cv2.rectangle(frame, (piros_doboz_x1, piros_doboz_y1), (piros_doboz_x2, piros_doboz_y2), (0, 0, 255), 2)
 
         # Kódolás Base64 formátumba a könnyű küldéshez
         _, buffer = cv2.imencode('.jpg', frame)
