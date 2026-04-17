@@ -17,5 +17,5 @@ pip install flask flask-cors
 
 pip install imageio-ffmpeg
 
-##Szerver elindítása:
+## Szerver elindítása:
 python backend/app.py

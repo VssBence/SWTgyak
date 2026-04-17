@@ -295,6 +295,95 @@
             border-radius: 4px;
         }
 
+        /* Becslés kijelző */
+        .estimate-display {
+            background: rgba(0, 0, 0, 0.5);
+            border: 1px solid var(--cyan);
+            border-radius: 8px;
+            padding: 10px 14px;
+            text-align: center;
+            font-family: 'Courier New', Courier, monospace;
+            font-size: 1.3rem;
+            color: var(--cyan);
+            text-shadow: 0 0 8px rgba(57, 232, 206, 0.5);
+        }
+
+        /* Fogadási vödrök (gombok) */
+        .bucket-grid {
+            display: grid;
+            grid-template-columns: 1fr 1fr;
+            gap: 10px;
+        }
+        .bucket-btn {
+            background: rgba(0, 0, 0, 0.5);
+            border: 1px solid rgba(255, 255, 255, 0.2);
+            padding: 12px 8px;
+            border-radius: 8px;
+            text-align: center;
+            cursor: pointer;
+            color: white;
+            font-weight: 600;
+            display: flex;
+            flex-direction: column;
+            gap: 4px;
+            transition: all 0.2s;
+            font-family: inherit;
+            font-size: 1rem;
+            text-transform: none;
+            letter-spacing: normal;
+            box-shadow: none;
+            margin-top: 0;
+        }
+        .bucket-btn:hover:not(:disabled) {
+            border-color: var(--cyan);
+            transform: translateY(-2px);
+            box-shadow: 0 0 10px rgba(57, 232, 206, 0.3);
+        }
+        .bucket-btn:disabled {
+            opacity: 0.35;
+            cursor: not-allowed;
+            transform: none;
+        }
+        .bucket-btn.selected {
+            background: var(--cyan);
+            border-color: var(--cyan);
+            color: var(--bg-dark);
+            opacity: 1;
+        }
+        .bucket-btn.selected .bucket-payout {
+            color: var(--bg-dark);
+        }
+        .bucket-label {
+            font-size: 1.05rem;
+            font-weight: 700;
+        }
+        .bucket-payout {
+            font-size: 0.85rem;
+            color: var(--cyan);
+            font-family: 'Courier New', Courier, monospace;
+        }
+
+        /* Fogadási időzítő */
+        .bet-timer {
+            text-align: center;
+            font-size: 1rem;
+            font-weight: 600;
+            color: var(--cyan);
+            padding: 8px 12px;
+            border-radius: 8px;
+            border: 1px solid var(--glass-border);
+            transition: color 0.3s, border-color 0.3s;
+        }
+        .bet-timer.warning {
+            color: #ffaa33;
+            border-color: #ffaa33;
+        }
+        .bet-timer.critical {
+            color: var(--pink);
+            border-color: var(--pink);
+            animation: pulseText 0.7s infinite;
+        }
+
         /* Start gomb */
         button {
             background: linear-gradient(135deg, var(--pink), var(--cyan));

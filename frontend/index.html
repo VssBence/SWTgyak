@@ -44,34 +44,21 @@
                 <input type="number" id="betAmount" value="100" min="10" step="10">
             </div>
 
-            <div class="bet-group">
-                <label>Tippelt autók száma:</label>
-                <input type="number" id="guessNumber" value="5" min="0">
+            <div class="bet-group" id="estimateGroup" style="display: none;">
+                <label>Rendszer becslés:</label>
+                <div id="estimateDisplay" class="estimate-display">–</div>
             </div>
 
-            <div class="bet-group">
-                <label>Típus:</label>
-                <div class="radio-group">
-                    <label>
-                        <input type="radio" name="guessType" value="min">
-                        <span>Kevesebb, mint</span>
-                        <span class="multiplier">2x</span>
-                    </label>
-                    <label>
-                        <input type="radio" name="guessType" value="exact" checked>
-                        <span>Pontosan ennyi</span>
-                        <span class="multiplier">5x</span>
-                    </label>
-                    <label>
-                        <input type="radio" name="guessType" value="max">
-                        <span>Több, mint</span>
-                        <span class="multiplier">2x</span>
-                    </label>
-                </div>
+            <div class="bet-group" id="bucketGroup" style="display: none;">
+                <label>Válassz fogadást:</label>
+                <div id="bucketGrid" class="bucket-grid"></div>
+            </div>
+
+            <div id="betTimer" class="bet-timer" style="display: none;">
+                Fogadási idő: <span id="betTimerValue">–</span>s
             </div>
 
             <button type="button" id="loadCamBtn">📷 Helyzet betöltése</button>
-            <button type="button" id="startBtn" style="display: none;">Fogadás & Videó Indítása</button>
             <div id="resultMessage"></div>
         </div>
 

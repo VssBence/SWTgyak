@@ -1,5 +1,6 @@
 import cv2
 import json
+import math
 import random
 import os
 import subprocess
@@ -91,6 +92,56 @@ def load_videos_config():
 # Ha a configban nincs explicit "roi", a red dobozt ennyivel tágítjuk ki (natív felbontás arányában)
 ROI_AUTO_H_PAD_FRAC = 0.15  # vízszintes margó: natív képmagasság ~15%-a
 ROI_AUTO_V_PAD_FRAC = 0.08  # függőleges margó: ~8%-a
+
+# Fogadási rendszer paraméterei
+HOUSE_EDGE = 0.90           # ennyiszerese a "fair" szorzónak (0.9 = 10% ház-előny)
+BET_SECONDS = 10            # a felhasználónak ennyi másodperce van fogadni
+DEFAULT_ESTIMATE = 3        # ha a box nincs kalibrálva
+DEFAULT_STDDEV = 2
+
+
+def _norm_cdf(x, mean, std):
+    if std <= 0:
+        return 1.0 if x >= mean else 0.0
+    return 0.5 * (1 + math.erf((x - mean) / (std * math.sqrt(2))))
+
+
+def compute_buckets(estimate, stddev):
+    """Négy vödör a becslés köré: <E-1, E-1..E, =E+1, >E+1.
+    A szorzó a vödör valószínűségéből és a ház-előnyből jön."""
+    est = round(estimate)
+    sd = max(0.5, stddev)
+
+    defs = [
+        {"id": "low",   "min": 0,       "max": est - 2,   "label": f"< {est - 1}"},
+        {"id": "mid",   "min": est - 1, "max": est,       "label": f"{est - 1}–{est}"},
+        {"id": "exact", "min": est + 1, "max": est + 1,   "label": f"= {est + 1}"},
+        {"id": "high",  "min": est + 2, "max": 10**9,     "label": f"> {est + 1}"},
+    ]
+
+    buckets = []
+    for b in defs:
+        disabled = b["min"] > b["max"]
+        if disabled:
+            p = 0.0
+            payout = 0.0
+        else:
+            # Folytonossági korrekcióval (±0.5) számított valószínűség
+            lo = b["min"] - 0.5
+            hi = b["max"] + 0.5
+            p = _norm_cdf(hi, estimate, sd) - _norm_cdf(lo, estimate, sd)
+            p = max(p, 0.02)  # padló, nehogy extrém szorzó legyen
+            payout = round((1.0 / p) * HOUSE_EDGE, 2)
+
+        buckets.append({
+            "id": b["id"],
+            "label": b["label"],
+            "min": b["min"],
+            "max": b["max"],
+            "payout": payout,
+            "disabled": disabled,
+        })
+    return buckets
 
 
 def scale_regions(box, frame_height, target_height=720):
@@ -299,6 +350,11 @@ def start_generation():
         video_cfg = random.choice(VIDEOS)
         box = random.choice(video_cfg["boxes"])
 
+        # Becslés a kiválasztott boxhoz (kalibrációból; ha nincs, default)
+        estimate = box.get("estimate", DEFAULT_ESTIMATE)
+        stddev = box.get("stddev", DEFAULT_STDDEV)
+        buckets = compute_buckets(estimate, stddev)
+
         # Videó megnyitása csak azért, hogy sorsoljunk és kivegyük az első képet
         cap = cv2.VideoCapture(video_cfg["path"])
         if not cap.isOpened():
@@ -357,7 +413,11 @@ def start_generation():
         return jsonify({
             "message": "Feldolgozás elindítva",
             "job_id": job_id,
-            "first_frame_base64": frame_b64
+            "first_frame_base64": frame_b64,
+            "estimate": estimate,
+            "stddev": stddev,
+            "buckets": buckets,
+            "bet_seconds": BET_SECONDS,
         }), 200
 
     except Exception as e:
