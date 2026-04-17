@@ -10,6 +10,9 @@ const guessNumberInput = document.getElementById("guessNumber");
 const resultMessage = document.getElementById("resultMessage");
 const guessTypeInputs = document.getElementsByName("guessType");
 const radioLabels = document.querySelectorAll(".radio-group label");
+const liveStatsBox = document.getElementById("liveStatsBox");
+const liveCountValue = document.getElementById("liveCountValue");
+const progressFill = document.getElementById("progressFill");
 
 // Játék Állapot
 let pollingInterval = null;
@@ -20,6 +23,8 @@ let currentGuessType = "exact";
 let actualVehicleCount = 0; // A szervertől kapott valós adat
 let currentJobId = null;
 let isBetPlaced = false;
+let countEvents = []; // [t1, t2, ...] másodpercben a videó elejétől
+let lastLiveCount = 0;
 
 // Segédfüggvény: Vezérlők engedélyezése / tiltása
 function setControlsDisabled(disabled) {
@@ -50,6 +55,25 @@ function updateBalance(amount) {
     balanceDisplay.textContent = userBalance;
 }
 
+// Élő számláló doboz alaphelyzetbe állítása
+function resetLiveStats() {
+    lastLiveCount = 0;
+    liveCountValue.textContent = "0";
+    liveCountValue.classList.remove("pulse");
+    progressFill.style.width = "100%";
+    liveStatsBox.classList.remove("final");
+}
+
+// Hány count-esemény történt már eddig a videóban (currentTime másodperc)
+function countEventsUpTo(currentTime) {
+    let n = 0;
+    for (const t of countEvents) {
+        if (t <= currentTime) n++;
+        else break; // események sorrendben érkeznek
+    }
+    return n;
+}
+
 // --- 1. FÁZIS: ÚJ KAMERAKÉP LEKÉRÉSE ---
 loadCamBtn.addEventListener("click", async () => {
     loadCamBtn.disabled = true;
@@ -57,6 +81,8 @@ loadCamBtn.addEventListener("click", async () => {
     resultMessage.className = "";
     resultMessage.innerHTML = "";
     isBetPlaced = false;
+    liveStatsBox.classList.remove("visible", "final");
+    resetLiveStats();
 
     try {
         videoElement.innerHTML = `<span class="video-placeholder">Kezdőpont betöltése...</span>`;
@@ -147,7 +173,12 @@ startBtn.addEventListener("click", async () => {
 
                     // Eltároljuk az eredményt, de MÉG NEM mutatjuk meg!
                     actualVehicleCount = statusData.vehicle_count;
+                    countEvents = statusData.count_events || [];
                     console.log("Valós darabszám: " + actualVehicleCount);
+
+                    // Élő doboz előkészítése
+                    resetLiveStats();
+                    liveStatsBox.classList.add("visible");
 
                     // Videó lekérése és lejátszása
                     const videoRes = await fetch(`http://localhost:5000/video/${currentJobId}`);
@@ -172,11 +203,28 @@ startBtn.addEventListener("click", async () => {
                         if (!isFinite(remaining)) return;
                         const secs = Math.floor(remaining % 60).toString().padStart(2, "0");
                         countdown.textContent = `00:${secs}`;
+
+                        // Haladási sáv: 100% → 0%
+                        const pct = Math.max(0, (remaining / video.duration) * 100);
+                        progressFill.style.width = pct + "%";
+
+                        // Élő számláló: hány esemény esett már meg
+                        const counted = countEventsUpTo(video.currentTime);
+                        if (counted !== lastLiveCount) {
+                            lastLiveCount = counted;
+                            liveCountValue.textContent = counted;
+                            liveCountValue.classList.remove("pulse");
+                            void liveCountValue.offsetWidth; // újraindítja az animációt
+                            liveCountValue.classList.add("pulse");
+                        }
                     });
 
                     // --- AMIKOR A VIDEÓ VÉGET ÉR: EREDMÉNYHIRDETÉS ---
                     video.addEventListener("ended", () => {
                         countdown.classList.remove("visible");
+                        progressFill.style.width = "0%";
+                        liveCountValue.textContent = actualVehicleCount;
+                        liveStatsBox.classList.add("final");
                         evaluateBet(); // Itt dől el a fogadás sorsa
                     });
 
@@ -237,6 +285,7 @@ function evaluateBet() {
 function handleError(error) {
     console.error(error);
     clearInterval(pollingInterval);
+    liveStatsBox.classList.remove("visible", "final");
     statusText.style.display = "block";
     statusText.textContent = "Hiba: " + error.message;
     statusText.style.animation = "none";

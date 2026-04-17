@@ -1,4 +1,5 @@
 import cv2
+import json
 import random
 import os
 import subprocess
@@ -76,14 +77,50 @@ def suppress_duplicate_boxes(boxes, ids, iou_threshold=0.3):
     return boxes[keep], ids[keep]
 
 
-def process_video_task(job_id, start_frame, input_path, clip_length_sec):
+def load_videos_config():
+    """Betölti a videók konfigurációját (elérési út + doboz koordináták)."""
+    config_path = os.path.join(os.path.dirname(os.path.abspath(__file__)), "videos_config.json")
+    videos_dir = os.path.join(os.path.dirname(os.path.abspath(__file__)), "..", "videos")
+    with open(config_path, encoding="utf-8") as f:
+        cfg = json.load(f)
+    for v in cfg["videos"]:
+        v["path"] = os.path.join(videos_dir, v["filename"])
+    return cfg["videos"]
+
+
+# Ha a configban nincs explicit "roi", a red dobozt ennyivel tágítjuk ki (natív felbontás arányában)
+ROI_AUTO_H_PAD_FRAC = 0.15  # vízszintes margó: natív képmagasság ~15%-a
+ROI_AUTO_V_PAD_FRAC = 0.08  # függőleges margó: ~8%-a
+
+
+def scale_regions(box, frame_height, target_height=720):
+    """A doboz natív koordinátáit átskálázza a kimeneti (720p) felbontásra.
+    Ha a 'roi' hiányzik a configból, automatikusan a 'red' doboz köré tágítjuk."""
+    scale = target_height / frame_height
+    red = [int(c * scale) for c in box["red"]]
+
+    if "roi" in box:
+        roi = [int(c * scale) for c in box["roi"]]
+    else:
+        h_pad = int(frame_height * ROI_AUTO_H_PAD_FRAC)
+        v_pad = int(frame_height * ROI_AUTO_V_PAD_FRAC)
+        rx1, ry1, rx2, ry2 = box["red"]
+        roi_native = [rx1 - h_pad, ry1 - v_pad, rx2 + h_pad, ry2 + v_pad]
+        roi = [int(c * scale) for c in roi_native]
+
+    return scale, roi, red
+
+
+def process_video_task(job_id, start_frame, video_cfg, box, clip_length_sec):
     """Ez a függvény fut a háttérben, és frissíti a job állapotát."""
     global is_generating
     output_path = os.path.join(os.path.dirname(os.path.abspath(__file__)), "..", "out_videos", f"output_{job_id}.mp4")
-    
+    vehicle_count = 0
+    count_events = []  # Időbélyegek (másodperc a klip elejétől), amikor egy-egy autót számláltunk
+
     try:
         # Videó megnyitása
-        cap = cv2.VideoCapture(input_path)
+        cap = cv2.VideoCapture(video_cfg["path"])
         if not cap.isOpened():
             print("Hiba: Nem sikerült megnyitni a videót!")
             return
@@ -101,13 +138,13 @@ def process_video_task(job_id, start_frame, input_path, clip_length_sec):
             print("Hiba: A videó rövidebb, mint a kivágni kívánt részlet!")
             cap.release()
             return
-        
-        # Downscale to 720p
-        scale = 720 / height
+
+        # Konfigból jövő dobozok skálázása a 720p-s kimenetre
+        scale, roi, red = scale_regions(box, height)
         out_w = int(width * scale)
         out_h = 720
 
-        print(f"Videó adatai: {fps} FPS, Eredeti: {width}x{height}, Kimenet: {out_w}x{out_h}")
+        print(f"Videó ({video_cfg['id']}): {fps} FPS, Eredeti: {width}x{height}, Kimenet: {out_w}x{out_h}")
         print(f"Kivágás kezdete: {start_frame}. képkocka (kb. {start_frame/fps:.2f}. másodperc)")
 
         # Ugrás a kisorsolt kezdő képkockára
@@ -125,14 +162,10 @@ def process_video_task(job_id, start_frame, input_path, clip_length_sec):
             output_path
         ], stdin=subprocess.PIPE, stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL)
 
-        # Számláláshoz szükséges beállítások (720p-re átszámolva)
+        # Számláláshoz szükséges beállítások (konfigból, 720p-re skálázva)
         target_classes = [2, 3, 5, 7] # autó, motor, busz, teherautó
-        roi_x1, roi_y1 = int(380 * scale), int(170 * scale)
-        roi_x2, roi_y2 = int(1130 * scale), int(290 * scale)
-
-        # A piros doboz pontos koordinátái (720p-re átszámolva)
-        piros_doboz_x1, piros_doboz_y1 = int(403 * scale), int(191 * scale)
-        piros_doboz_x2, piros_doboz_y2 = int(1111 * scale), int(269 * scale)
+        roi_x1, roi_y1, roi_x2, roi_y2 = roi
+        piros_doboz_x1, piros_doboz_y1, piros_doboz_x2, piros_doboz_y2 = red
 
         # Padded crop region: csak ezt a területet kapja a YOLO (gyorsabb inferencia)
         PAD_TOP, PAD_BOTTOM, PAD_LEFT, PAD_RIGHT = 80, 80, 40, 40
@@ -141,7 +174,6 @@ def process_video_task(job_id, start_frame, input_path, clip_length_sec):
         crop_x1 = max(0, roi_x1 - PAD_LEFT)
         crop_x2 = min(out_w, roi_x2 + PAD_RIGHT)
 
-        vehicle_count = 0
         vehicle_states = {} # Tárolja a járművek állapotát: 'inside' vagy 'counted'
 
         # Csak minden N-edik képkockán futtatunk detekciót (a többi frame-re újrahasználjuk)
@@ -194,8 +226,8 @@ def process_video_task(job_id, start_frame, input_path, clip_length_sec):
 
             # Eredmények feldolgozása (utolsó detekció eredményeit használjuk)
             if last_boxes is not None and last_ids is not None:
-                for box, track_id in zip(last_boxes, last_ids):
-                    x1, y1, x2, y2 = map(int, box)
+                for bbox, track_id in zip(last_boxes, last_ids):
+                    x1, y1, x2, y2 = map(int, bbox)
 
                     # Középpont kiszámítása
                     cx = (x1 + x2) // 2
@@ -217,13 +249,10 @@ def process_video_task(job_id, start_frame, input_path, clip_length_sec):
                             if vehicle_states.get(track_id) == 'inside':
                                 vehicle_count += 1
                                 vehicle_states[track_id] = 'counted'
+                                count_events.append(round(i / fps, 3))
 
                                 cv2.rectangle(frame, (piros_doboz_x1, piros_doboz_y1),
                                               (piros_doboz_x2, piros_doboz_y2), (255, 255, 255), 4)
-
-            # A végső eredmény kiírása
-            cv2.putText(frame, f"Athaladt jarmuvek: {vehicle_count}", (20, 50),
-                        cv2.FONT_HERSHEY_SIMPLEX, 1, (0, 255, 255), 3)
 
             # Képkocka mentése az FFmpeg pipe-ba
             ffmpeg_proc.stdin.write(frame.tobytes())
@@ -232,6 +261,7 @@ def process_video_task(job_id, start_frame, input_path, clip_length_sec):
         jobs[job_id]['status'] = 'done'
         jobs[job_id]['output_path'] = output_path
         jobs[job_id]['vehicle_count'] = vehicle_count
+        jobs[job_id]['count_events'] = count_events
 
     except Exception as e:
         print(f"Hiba történt: {e}")
@@ -248,9 +278,9 @@ def process_video_task(job_id, start_frame, input_path, clip_length_sec):
 
 
 # Paraméterek
-BEMENETI_VIDEO = os.path.join(os.path.dirname(os.path.abspath(__file__)), "..", "videos", "test4_11min.mp4")
 KIVAGAS_HOSSZA = 20  # másodperc
 MODEL = load_model()
+VIDEOS = load_videos_config()
 
 # ── ÚJ VÉGPONTOK ──
 
@@ -265,8 +295,12 @@ def start_generation():
     is_generating = True
 
     try:
+        # Videó és doboz véletlenszerű kiválasztása
+        video_cfg = random.choice(VIDEOS)
+        box = random.choice(video_cfg["boxes"])
+
         # Videó megnyitása csak azért, hogy sorsoljunk és kivegyük az első képet
-        cap = cv2.VideoCapture(BEMENETI_VIDEO)
+        cap = cv2.VideoCapture(video_cfg["path"])
         if not cap.isOpened():
             is_generating = False
             return jsonify({"error": "Nem sikerült megnyitni a forrásvideót!"}), 500
@@ -277,15 +311,16 @@ def start_generation():
 
         extra_frames_buffer = int(2 * fps)
         max_start_frame = total_frames - frames_to_extract - extra_frames_buffer
-        
+
         if max_start_frame <= 0:
             cap.release()
+            is_generating = False
             return jsonify({"error": "A videó túl rövid a kért kivágáshoz!"}), 400
 
         # Sorsolás
         start_frame = random.randint(0, max_start_frame)
         cap.set(cv2.CAP_PROP_POS_FRAMES, start_frame)
-        
+
         # Első képkocka beolvasása
         ret, frame = cap.read()
         cap.release()
@@ -295,17 +330,12 @@ def start_generation():
             return jsonify({"error": "Hiba az első képkocka olvasásakor!"}), 500
 
         # Kép átméretezése 720p-re, hogy megegyezzen a végleges videóval
-        height = frame.shape[0]
-        width = frame.shape[1]
-        scale = 720 / height
+        height, width = frame.shape[:2]
+        scale, _, red = scale_regions(box, height)
         frame = cv2.resize(frame, (int(width * scale), 720))
 
-        # Piros doboz arányosított koordinátáinak kiszámítása (ugyanaz, mint a process_video_task-ban)
-        piros_doboz_x1, piros_doboz_y1 = int(403 * scale), int(191 * scale)
-        piros_doboz_x2, piros_doboz_y2 = int(1111 * scale), int(269 * scale)
-
         # Piros téglalap rárajzolása a képre (BGR formátumban a piros (0, 0, 255), 2px vastagság)
-        cv2.rectangle(frame, (piros_doboz_x1, piros_doboz_y1), (piros_doboz_x2, piros_doboz_y2), (0, 0, 255), 2)
+        cv2.rectangle(frame, (red[0], red[1]), (red[2], red[3]), (0, 0, 255), 2)
 
         # Kódolás Base64 formátumba a könnyű küldéshez
         _, buffer = cv2.imencode('.jpg', frame)
@@ -319,7 +349,8 @@ def start_generation():
         }
 
         # Háttérszál indítása
-        thread = threading.Thread(target=process_video_task, args=(job_id, start_frame, BEMENETI_VIDEO, KIVAGAS_HOSSZA))
+        thread = threading.Thread(target=process_video_task,
+                                  args=(job_id, start_frame, video_cfg, box, KIVAGAS_HOSSZA))
         thread.daemon = True # A szál leáll, ha a főprogram leáll
         thread.start()
 
@@ -341,10 +372,11 @@ def get_status(job_id):
     if not job:
         return jsonify({"error": "Nem található ilyen azonosító"}), 404
 
-    # Ha kész, visszaküldjük a kocsik számát is
+    # Ha kész, visszaküldjük a kocsik számát és az időbélyegeket is
     response_data = {"status": job['status']}
     if job['status'] == 'done':
         response_data['vehicle_count'] = job.get('vehicle_count', 0)
+        response_data['count_events'] = job.get('count_events', [])
 
     return jsonify(response_data), 200
 
