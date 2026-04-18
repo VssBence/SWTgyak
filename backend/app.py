@@ -95,7 +95,7 @@ ROI_AUTO_V_PAD_FRAC = 0.08  # függőleges margó: ~8%-a
 
 # Fogadási rendszer paraméterei
 HOUSE_EDGE = 0.90           # ennyiszerese a "fair" szorzónak (0.9 = 10% ház-előny)
-BET_SECONDS = 10            # a felhasználónak ennyi másodperce van fogadni
+BET_SECONDS = 15           # a felhasználónak ennyi másodperce van fogadni
 DEFAULT_ESTIMATE = 3        # ha a box nincs kalibrálva
 DEFAULT_STDDEV = 2
 

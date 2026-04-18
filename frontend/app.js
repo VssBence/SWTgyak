@@ -195,9 +195,9 @@ async function startPolling() {
                         const secs = Math.floor(remaining % 60);
                         if (secs !== lastSecs) {
                             lastSecs = secs;
-                            countdown.textContent = 00:${secs.toString().padStart(2, "0")};
+                            countdown.textContent = `00:${secs.toString().padStart(2, "0")}`;
                         }
-
+                        
                         const pct = (remaining / duration) * 100;
                         progressFill.style.width = pct + "%";
 
@@ -222,6 +222,7 @@ async function startPolling() {
                 });
 
                 video.addEventListener("ended", () => {
+                    if (rafId !== null) { cancelAnimationFrame(rafId); rafId = null; }
                     countdown.classList.remove("visible");
                     progressFill.style.width = "0%";
                     liveCountValue.textContent = actualVehicleCount;
