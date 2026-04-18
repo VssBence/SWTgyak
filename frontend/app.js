@@ -6,8 +6,6 @@ const statusText = document.getElementById("status_text");
 const balanceDisplay = document.getElementById("balanceDisplay");
 const betAmountInput = document.getElementById("betAmount");
 const resultMessage = document.getElementById("resultMessage");
-const estimateGroup = document.getElementById("estimateGroup");
-const estimateDisplay = document.getElementById("estimateDisplay");
 const bucketGroup = document.getElementById("bucketGroup");
 const bucketGrid = document.getElementById("bucketGrid");
 const betTimer = document.getElementById("betTimer");
@@ -58,7 +56,6 @@ function clearBetUi() {
     betTimer.style.display = "none";
     betTimer.classList.remove("warning", "critical");
     bucketGroup.style.display = "none";
-    estimateGroup.style.display = "none";
     bucketGrid.innerHTML = "";
     currentBucket = null;
     betAmountInput.disabled = false;
@@ -263,9 +260,7 @@ loadCamBtn.addEventListener("click", async () => {
 
         statusText.style.display = "none";
 
-        // Becslés + vödrök + időzítő
-        estimateDisplay.textContent = `≈ ${startData.estimate} autó  (± ${startData.stddev})`;
-        estimateGroup.style.display = "flex";
+        // Vödrök + időzítő
         bucketGroup.style.display = "flex";
         renderBuckets(startData.buckets);
         betAmountInput.disabled = false;
