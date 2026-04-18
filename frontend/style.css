@@ -164,7 +164,7 @@
             width: 100%;
             background: linear-gradient(90deg, var(--cyan), #00ffdd, var(--cyan));
             border-radius: 6px;
-            transition: width 0.1s linear, background 0.4s ease;
+            transition: background 0.4s ease;
             box-shadow: 0 0 12px rgba(57, 232, 206, 0.8), inset 0 0 8px rgba(255, 255, 255, 0.3);
             animation: progressPulse 2s ease-in-out infinite;
         }

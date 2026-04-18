@@ -185,25 +185,40 @@ async function startPolling() {
                 video.controls = false;
                 video.disablePictureInPicture = true;
 
-                video.addEventListener("play", () => countdown.classList.add("visible"));
+                let rafId = null;
+                let lastSecs = -1;
+                const tick = () => {
+                    if (video.paused || video.ended) { rafId = null; return; }
+                    const duration = video.duration;
+                    if (isFinite(duration) && duration > 0) {
+                        const remaining = Math.max(0, duration - video.currentTime);
+                        const secs = Math.floor(remaining % 60);
+                        if (secs !== lastSecs) {
+                            lastSecs = secs;
+                            countdown.textContent = 00:${secs.toString().padStart(2, "0")};
+                        }
 
-                video.addEventListener("timeupdate", () => {
-                    const remaining = video.duration - video.currentTime;
-                    if (!isFinite(remaining)) return;
-                    const secs = Math.floor(remaining % 60).toString().padStart(2, "0");
-                    countdown.textContent = `00:${secs}`;
+                        const pct = (remaining / duration) * 100;
+                        progressFill.style.width = pct + "%";
 
-                    const pct = Math.max(0, (remaining / video.duration) * 100);
-                    progressFill.style.width = pct + "%";
-
-                    const counted = countEventsUpTo(video.currentTime);
-                    if (counted !== lastLiveCount) {
-                        lastLiveCount = counted;
-                        liveCountValue.textContent = counted;
-                        liveCountValue.classList.remove("pulse");
-                        void liveCountValue.offsetWidth;
-                        liveCountValue.classList.add("pulse");
+                        const counted = countEventsUpTo(video.currentTime);
+                        if (counted !== lastLiveCount) {
+                            lastLiveCount = counted;
+                            liveCountValue.textContent = counted;
+                            liveCountValue.classList.remove("pulse");
+                            void liveCountValue.offsetWidth;
+                            liveCountValue.classList.add("pulse");
+                        }
                     }
+                    rafId = requestAnimationFrame(tick);
+                };
+
+                video.addEventListener("play", () => {
+                    countdown.classList.add("visible");
+                    if (rafId === null) rafId = requestAnimationFrame(tick);
+                });
+                video.addEventListener("pause", () => {
+                    if (rafId !== null) { cancelAnimationFrame(rafId); rafId = null; }
                 });
 
                 video.addEventListener("ended", () => {
