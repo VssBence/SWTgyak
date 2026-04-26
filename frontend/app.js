@@ -16,23 +16,103 @@ const liveStatsBox = document.getElementById("liveStatsBox");
 const liveCountValue = document.getElementById("liveCountValue");
 const progressFill = document.getElementById("progressFill");
 
+// ÚJ: UI elemek
+const errorBadge = document.getElementById("errorBadge");
+const errorText = document.getElementById("errorText");
+const retryBtn = document.getElementById("retryBtn");
+const statusDot = document.getElementById("statusDot");
+const statusLabel = document.getElementById("statusLabel");
+const maxBetDisplay = document.getElementById("maxBetDisplay");
+const betPresets = document.getElementById("betPresets");
+const betMinus = document.getElementById("betMinus");
+const betPlus = document.getElementById("betPlus");
+
 // Játék állapot
 let pollingInterval = null;
 let betTimerInterval = null;
 let userBalance = 1000;
 let currentBet = 0;
-let currentBucket = null;       // kiválasztott vödör, vagy null (nézői kör)
+let currentBucket = null;
 let actualVehicleCount = 0;
 let currentJobId = null;
 let isBetPlaced = false;
 let countEvents = [];
 let lastLiveCount = 0;
 
+// --- ÚJ: Preset gombok + stepper logika ---
+
+function updateActivePreset(value) {
+    for (const btn of betPresets.querySelectorAll(".preset-btn")) {
+        const v = btn.dataset.value;
+        if (v === "max") {
+            btn.classList.toggle("active", value >= userBalance);
+        } else {
+            btn.classList.toggle("active", parseInt(v) === value);
+        }
+    }
+}
+
+betPresets.addEventListener("click", (e) => {
+    const btn = e.target.closest(".preset-btn");
+    if (!btn || btn.disabled) return;
+    const val = btn.dataset.value;
+    if (val === "max") {
+        betAmountInput.value = userBalance;
+    } else {
+        betAmountInput.value = parseInt(val);
+    }
+    updateActivePreset(parseInt(betAmountInput.value));
+});
+
+betMinus.addEventListener("click", () => {
+    const step = parseInt(betAmountInput.step) || 10;
+    const min = parseInt(betAmountInput.min) || 10;
+    const current = parseInt(betAmountInput.value) || 0;
+    betAmountInput.value = Math.max(min, current - step);
+    updateActivePreset(parseInt(betAmountInput.value));
+});
+
+betPlus.addEventListener("click", () => {
+    const step = parseInt(betAmountInput.step) || 10;
+    const current = parseInt(betAmountInput.value) || 0;
+    betAmountInput.value = Math.min(userBalance, current + step);
+    updateActivePreset(parseInt(betAmountInput.value));
+});
+
+betAmountInput.addEventListener("input", () => {
+    updateActivePreset(parseInt(betAmountInput.value));
+});
+
+// ÚJ: Retry gomb → ugyanaz mint az Indítás gomb
+retryBtn.addEventListener("click", () => {
+    hideError();
+    loadCamBtn.click();
+});
+
+// ÚJ: Hibajelző badge kezelők
+function showError(message) {
+    errorText.textContent = message;
+    errorBadge.style.display = "flex";
+    setConnectionStatus("offline", "Kapcsolat megszakadt");
+}
+
+function hideError() {
+    errorBadge.style.display = "none";
+}
+
+// ÚJ: Kapcsolat státusz jelző
+function setConnectionStatus(state, label) {
+    statusDot.className = "status-dot " + state;
+    statusLabel.textContent = label;
+}
+
 // --- Segédfüggvények ---
 
 function updateBalance(amount) {
     userBalance += amount;
-    balanceDisplay.textContent = userBalance;
+    balanceDisplay.textContent = userBalance.toLocaleString("hu-HU");
+    maxBetDisplay.textContent = userBalance.toLocaleString("hu-HU");
+    updateActivePreset(parseInt(betAmountInput.value));
 }
 
 function resetLiveStats() {
@@ -62,6 +142,16 @@ function clearBetUi() {
     bucketGrid.innerHTML = "";
     currentBucket = null;
     betAmountInput.disabled = false;
+    setBetControlsDisabled(false);
+}
+
+// ÚJ: preset + stepper engedélyezés/tiltás egyszerre
+function setBetControlsDisabled(disabled) {
+    betMinus.disabled = disabled;
+    betPlus.disabled = disabled;
+    for (const btn of betPresets.querySelectorAll(".preset-btn")) {
+        btn.disabled = disabled;
+    }
 }
 
 function renderBuckets(buckets) {
@@ -115,9 +205,9 @@ function startBetTimer(seconds) {
 }
 
 function onBetTimerExpired() {
-    // Nincs fogadás: letiltjuk a vödröket, jelezzük nézői módot, polling indul
     for (const b of bucketGrid.querySelectorAll(".bucket-btn")) b.disabled = true;
     betAmountInput.disabled = true;
+    setBetControlsDisabled(true);
 
     statusText.style.display = "block";
     statusText.style.animation = "none";
@@ -149,6 +239,7 @@ function placeBet(bucket, btnEl) {
     isBetPlaced = true;
 
     betAmountInput.disabled = true;
+    setBetControlsDisabled(true);
     for (const b of bucketGrid.querySelectorAll(".bucket-btn")) b.disabled = true;
     btnEl.classList.add("selected");
 
@@ -160,6 +251,7 @@ async function startPolling() {
     statusText.style.animation = "pulseText 1.5s infinite";
     statusText.style.color = "var(--cyan)";
     statusText.textContent = "Videófeldolgozás folyamatban...";
+    setConnectionStatus("online", "Feldolgozás...");
 
     pollingInterval = setInterval(async () => {
         try {
@@ -214,6 +306,7 @@ async function startPolling() {
                     progressFill.style.width = "0%";
                     liveCountValue.textContent = actualVehicleCount;
                     liveStatsBox.classList.add("final");
+                    setConnectionStatus("", "Kész");
                     evaluateBet();
                 });
 
@@ -240,9 +333,17 @@ loadCamBtn.addEventListener("click", async () => {
     liveStatsBox.classList.remove("visible", "final");
     resetLiveStats();
     clearBetUi();
+    hideError();
+    setConnectionStatus("online", "Csatlakozás...");
 
     try {
-        videoElement.innerHTML = `<span class="video-placeholder">Kezdőpont betöltése...</span>`;
+        videoElement.innerHTML = `
+            <div class="video-placeholder">
+                <div class="placeholder-icon">📡</div>
+                <div class="placeholder-title">Kamera betöltése...</div>
+                <div class="placeholder-sub">Kérlek várj</div>
+            </div>`;
+
         statusText.style.display = "block";
         statusText.style.animation = "pulseText 1.5s infinite";
         statusText.style.color = "var(--cyan)";
@@ -255,35 +356,35 @@ loadCamBtn.addEventListener("click", async () => {
 
         currentJobId = startData.job_id;
 
-        // Első kép megjelenítése
         videoElement.innerHTML = "";
         const previewImg = document.createElement("img");
         previewImg.src = `data:image/jpeg;base64,${startData.first_frame_base64}`;
         videoElement.appendChild(previewImg);
 
         statusText.style.display = "none";
+        setConnectionStatus("online", "Élő közvetítés");
 
-        // Becslés + vödrök + időzítő
         estimateDisplay.textContent = `≈ ${startData.estimate} autó  (± ${startData.stddev})`;
         estimateGroup.style.display = "flex";
         bucketGroup.style.display = "flex";
         renderBuckets(startData.buckets);
         betAmountInput.disabled = false;
+        setBetControlsDisabled(false);
+        updateActivePreset(parseInt(betAmountInput.value));
         startBetTimer(startData.bet_seconds);
 
         loadCamBtn.style.display = "none";
-        loadCamBtn.textContent = "📷 Következő helyzet";
+        loadCamBtn.textContent = "▶ Következő helyzet";
     } catch (error) {
         handleError(error);
         loadCamBtn.disabled = false;
-        loadCamBtn.textContent = "📷 Újrapróbálás";
+        loadCamBtn.textContent = "▶ Újrapróbálás";
     }
 });
 
 // --- Eredmény kiértékelése ---
 function evaluateBet() {
     if (!isBetPlaced || !currentBucket) {
-        // Nézői kör: nincs tét, csak információ
         resultMessage.className = "";
         resultMessage.innerHTML = `ℹ️ Végeredmény: ${actualVehicleCount} jármű haladt át.`;
     } else {
@@ -307,19 +408,19 @@ function evaluateBet() {
     loadCamBtn.disabled = false;
 }
 
-// --- Hibakezelő ---
+// --- Hibakezelő (ÚJ: badge alapú) ---
 function handleError(error) {
     console.error(error);
     clearInterval(pollingInterval);
     clearInterval(betTimerInterval);
     betTimerInterval = null;
     liveStatsBox.classList.remove("visible", "final");
-    statusText.style.display = "block";
-    statusText.textContent = "Hiba: " + error.message;
-    statusText.style.animation = "none";
-    statusText.style.color = "var(--pink)";
+    statusText.style.display = "none";
 
-    // Tét visszatérítése, ha már fogadtunk
+    // Hibaüzenet badge-ben jelenik meg, nem a státusz szövegben
+    showError("Kapcsolódás sikertelen — " + error.message);
+
+    // Tét visszatérítése
     if (isBetPlaced) {
         updateBalance(currentBet);
         resultMessage.className = "";
@@ -329,4 +430,17 @@ function handleError(error) {
     clearBetUi();
     loadCamBtn.style.display = "block";
     loadCamBtn.disabled = false;
+    loadCamBtn.textContent = "▶ Újrapróbálás";
+
+    // Visszaállítjuk a placeholder-t
+    videoElement.innerHTML = `
+        <div class="video-placeholder">
+            <div class="placeholder-icon">📡</div>
+            <div class="placeholder-title">Nem sikerült kapcsolódni</div>
+            <div class="placeholder-sub">Ellenőrizd a szervert,<br>majd próbáld újra</div>
+        </div>`;
 }
+
+// Inicializálás: egyenleg megjelenítés szinkronizálása
+updateBalance(0);
+updateActivePreset(parseInt(betAmountInput.value));

@@ -13,10 +13,23 @@
         
         <!-- BAL OLDAL: VIDEÓ -->
         <div class="video-panel">
+
+            <!-- HIBAJELZŐ BADGE (új) -->
+            <div id="errorBadge" class="error-badge" style="display: none;">
+                <span class="error-dot"></span>
+                <span id="errorText">Kapcsolódás sikertelen</span>
+                <button type="button" id="retryBtn" class="retry-inline">Újrapróbálás</button>
+            </div>
+
             <h3 id="status_text" style="display: none;"></h3>
             
             <div id="video_sec">
-                <span class="video-placeholder">Várakozás a tétre</span>
+                <!-- Javított placeholder: ikon + szöveg -->
+                <div class="video-placeholder">
+                    <div class="placeholder-icon">🎥</div>
+                    <div class="placeholder-title">Várakozás az indításra</div>
+                    <div class="placeholder-sub">Nyomj az Indítás gombra<br>a játék megkezdéséhez</div>
+                </div>
             </div>
 
             <div id="liveStatsBox">
@@ -28,22 +41,52 @@
                     <div class="live-progress-fill" id="progressFill"></div>
                 </div>
             </div>
-
             <div id="countdown">00:00</div>
         </div>
 
         <!-- JOBB OLDAL: VEZÉRLÉS -->
         <div class="control-panel">
-            <img src="cicakep.png" alt="Cica" style="width: 100px; display: block; margin: 0 auto;">
-            <h1>RushHour CCTV</h1>
+            <div class="brand-header">
+                <img src="cicakep.png" alt="Cica" class="brand-logo">
+                <div class="brand-info">
+                    <h1>RushHour CCTV</h1>
+                    <span class="connection-status" id="connectionStatus">
+                        <span class="status-dot" id="statusDot"></span>
+                        <span id="statusLabel">Készen áll</span>
+                    </span>
+                </div>
+            </div>
             
             <div class="balance-board">
-                Egyenleg: <span class="balance-amount" id="balanceDisplay">1000</span> 🪙
+                <span class="balance-label">Egyenleg</span>
+                <span class="balance-amount" id="balanceDisplay">1000</span>
+                <span class="balance-coin">🪙</span>
             </div>
 
+            <!-- TÉT SZEKCIÓ -->
             <div class="bet-group">
-                <label>Tét (🪙):</label>
-                <input type="number" id="betAmount" value="100" min="10" step="10">
+                <label>Tét összege (🪙):</label>
+
+                <!-- Gyors választó gombok -->
+                <div class="bet-presets" id="betPresets">
+                    <button type="button" class="preset-btn" data-value="10">10</button>
+                    <button type="button" class="preset-btn" data-value="50">50</button>
+                    <button type="button" class="preset-btn" data-value="100">100</button>
+                    <button type="button" class="preset-btn" data-value="max">Max</button>
+                </div>
+
+                <!-- Stepper + input sor -->
+                <div class="bet-input-row">
+                    <button type="button" id="betMinus" class="bet-stepper">−</button>
+                    <input type="number" id="betAmount" value="100" min="10" step="10">
+                    <button type="button" id="betPlus" class="bet-stepper">+</button>
+                </div>
+
+                <!-- Min/Max jelzők -->
+                <div class="bet-limits">
+                    <span>Min: 10 🪙</span>
+                    <span>Max: <span id="maxBetDisplay">1000</span> 🪙</span>
+                </div>
             </div>
 
             <div class="bet-group" id="estimateGroup" style="display: none;">
@@ -57,13 +100,13 @@
             </div>
 
             <div id="betTimer" class="bet-timer" style="display: none;">
-                Fogadási idő: <span id="betTimerValue">–</span>s
+                ⏱ Fogadási idő: <span id="betTimerValue">–</span>s
             </div>
 
-            <button type="button" id="loadCamBtn">📷 Helyzet betöltése</button>
+            <button type="button" id="loadCamBtn">▶ Indítás</button>
+
             <div id="resultMessage"></div>
         </div>
-
     </div>
     
     <script src="app.js"></script>

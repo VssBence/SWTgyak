@@ -2,5 +2,6 @@
     "liveServer.settings.ignoreFiles": [
         "**/out_videos/**",
         "**/backend/**"
-    ]
+    ],
+    "liveServer.settings.port": 5501
 }
