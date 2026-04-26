@@ -208,21 +208,46 @@
             text-shadow: 0 0 10px var(--cyan);
             transition: transform 0.2s ease, color 0.4s ease, text-shadow 0.4s ease;
         }
-        .live-stats-value.pulse { transform: scale(1.25); }
+        .live-stats-value.pulse { 
+            animation: carDetectPulse 0.6s cubic-bezier(0.34, 1.56, 0.64, 1);
+        }
+        
+        @keyframes carDetectPulse {
+            0% { transform: scale(1); }
+            30% { transform: scale(1.35); }
+            60% { 
+                transform: scale(1.2);
+                color: #00ffdd;
+                text-shadow: 0 0 20px #00ffdd, 0 0 30px rgba(57, 232, 206, 0.8);
+            }
+            100% { 
+                transform: scale(1);
+                color: var(--cyan);
+                text-shadow: 0 0 10px var(--cyan);
+            }
+        }
 
         .live-progress {
             width: 100%;
-            height: 8px;
+            height: 12px;
             background: rgba(255, 255, 255, 0.08);
-            border-radius: 4px;
+            border-radius: 6px;
             overflow: hidden;
+            box-shadow: inset 0 0 8px rgba(0, 0, 0, 0.4);
         }
         .live-progress-fill {
             height: 100%;
             width: 100%;
-            background: linear-gradient(90deg, var(--cyan), #7ff0dc);
-            border-radius: 4px;
-            transition: width 0.1s linear, background 0.4s ease;
+            background: linear-gradient(90deg, var(--cyan), #00ffdd, var(--cyan));
+            border-radius: 6px;
+            transition: background 0.4s ease;
+            box-shadow: 0 0 12px rgba(57, 232, 206, 0.8), inset 0 0 8px rgba(255, 255, 255, 0.3);
+            animation: progressPulse 2s ease-in-out infinite;
+        }
+        
+        @keyframes progressPulse {
+            0%, 100% { box-shadow: 0 0 12px rgba(57, 232, 206, 0.8), inset 0 0 8px rgba(255, 255, 255, 0.3); }
+            50% { box-shadow: 0 0 20px rgba(57, 232, 206, 1), inset 0 0 12px rgba(255, 255, 255, 0.5); }
         }
 
         /* Végállapot */
@@ -495,17 +520,9 @@
             padding: 0 2px;
         }
 
-        /* Becslés kijelző */
+        /* Becslés kijelző - ELTÁVOLÍTVA */
         .estimate-display {
-            background: rgba(0, 0, 0, 0.5);
-            border: 1px solid var(--cyan);
-            border-radius: 8px;
-            padding: 10px 14px;
-            text-align: center;
-            font-family: 'Courier New', Courier, monospace;
-            font-size: 1.3rem;
-            color: var(--cyan);
-            text-shadow: 0 0 8px rgba(57, 232, 206, 0.5);
+            display: none;
         }
 
         /* Fogadási vödrök */
