@@ -18,8 +18,6 @@ const progressFill = document.getElementById("progressFill");
 const errorBadge = document.getElementById("errorBadge");
 const errorText = document.getElementById("errorText");
 const retryBtn = document.getElementById("retryBtn");
-const statusDot = document.getElementById("statusDot");
-const statusLabel = document.getElementById("statusLabel");
 const maxBetDisplay = document.getElementById("maxBetDisplay");
 const betPresets = document.getElementById("betPresets");
 const betMinus = document.getElementById("betMinus");
@@ -91,18 +89,13 @@ retryBtn.addEventListener("click", () => {
 function showError(message) {
     errorText.textContent = message;
     errorBadge.style.display = "flex";
-    setConnectionStatus("offline", "Kapcsolat megszakadt");
 }
 
 function hideError() {
     errorBadge.style.display = "none";
 }
 
-// ÚJ: Kapcsolat státusz jelző
-function setConnectionStatus(state, label) {
-    statusDot.className = "status-dot " + state;
-    statusLabel.textContent = label;
-}
+
 
 // --- Segédfüggvények ---
 
@@ -248,7 +241,6 @@ async function startPolling() {
     statusText.style.animation = "pulseText 1.5s infinite";
     statusText.style.color = "var(--cyan)";
     statusText.textContent = "Videófeldolgozás folyamatban...";
-    setConnectionStatus("online", "Feldolgozás...");
 
     pollingInterval = setInterval(async () => {
         try {
@@ -319,7 +311,6 @@ async function startPolling() {
                     progressFill.style.width = "0%";
                     liveCountValue.textContent = actualVehicleCount;
                     liveStatsBox.classList.add("final");
-                    setConnectionStatus("", "Kész");
                     evaluateBet();
                 });
 
@@ -347,7 +338,6 @@ loadCamBtn.addEventListener("click", async () => {
     resetLiveStats();
     clearBetUi();
     hideError();
-    setConnectionStatus("online", "Csatlakozás...");
 
     try {
         videoElement.innerHTML = `
@@ -375,7 +365,6 @@ loadCamBtn.addEventListener("click", async () => {
         videoElement.appendChild(previewImg);
 
         statusText.style.display = "none";
-        setConnectionStatus("online", "Élő közvetítés");
 
         bucketGroup.style.display = "flex";
         renderBuckets(startData.buckets);
